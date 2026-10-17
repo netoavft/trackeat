@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrackEat Financeiro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#fff; --ink:#16181d; --muted:#667085; --line:#e4e7ec;
+  --brand:#f26a1b; --brand-ink:#fff; --ok:#12805c; --ok-bg:#e7f6ef; --bad:#c4320a; --bad-bg:#fdeee8;
+  --warn:#9a6700; --warn-bg:#fff6dc; --info-bg:#eef2ff; --focus:#2f6fed;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1115; --card:#171a21; --ink:#eceef2; --muted:#98a2b3; --line:#2a2f3a;
+    --ok:#4fd1a1; --ok-bg:#12302a; --bad:#ff8a65; --bad-bg:#3a1d14; --warn:#f5c451; --warn-bg:#3a2f12; --info-bg:#1c2333;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1115; --card:#171a21; --ink:#eceef2; --muted:#98a2b3; --line:#2a2f3a;
+  --ok:#4fd1a1; --ok-bg:#12302a; --bad:#ff8a65; --bad-bg:#3a1d14; --warn:#f5c451; --warn-bg:#3a2f12; --info-bg:#1c2333;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 Inter,system-ui,sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:12px 16px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+header h1{font-size:16px;margin:0;font-weight:700}
+header h1 span{color:var(--brand)}
+nav{display:flex;gap:4px;flex-wrap:wrap}
+nav button{background:none;border:0;padding:8px 12px;border-radius:8px;color:var(--muted);font:inherit;font-weight:500;cursor:pointer}
+nav button.on{background:var(--info-bg);color:var(--ink)}
+.spacer{flex:1}
+.who{color:var(--muted);font-size:12px}
+main{max-width:1180px;margin:0 auto;padding:16px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+.kpi .rot{color:var(--muted);font-size:12px}
+.kpi .val{font-size:22px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}
+.kpi .sub{color:var(--muted);font-size:12px;margin-top:2px}
+h2{font-size:15px;margin:20px 0 8px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:7px 9px}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+button.btn{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:7px 12px;cursor:pointer}
+button.pri{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
+button.mini{padding:3px 8px;font-size:12px}
+.tbl{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.tbl th,.tbl td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.tbl th{font-size:12px;color:var(--muted);font-weight:600;background:var(--bg)}
+.tbl td.n,.tbl th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tbl tr:last-child td{border-bottom:0}
+.scroll{overflow-x:auto}
+.pos{color:var(--ok)} .neg{color:var(--bad)}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600}
+.t-pago{background:var(--ok-bg);color:var(--ok)} .t-prev{background:var(--info-bg);color:var(--ink)} .t-atr{background:var(--bad-bg);color:var(--bad)}
+.muted{color:var(--muted)}
+.vazio{padding:24px;text-align:center;color:var(--muted)}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);padding:0;width:min(560px,94vw)}
+dialog::backdrop{background:#0006}
+dialog form{padding:18px;display:grid;gap:10px}
+dialog label{display:grid;gap:4px;font-size:12px;color:var(--muted)}
+.dois{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.acoes{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
+#login{max-width:380px;margin:12vh auto;display:grid;gap:12px}
+.aviso{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 12px}
+.erro{background:var(--bad-bg);color:var(--bad);border-radius:10px;padding:10px 12px}
+.barra{height:8px;border-radius:4px;background:var(--line);overflow:hidden}
+.barra i{display:block;height:100%;background:var(--brand)}
+@media (max-width:640px){ .dois{grid-template-columns:1fr} header{gap:8px} }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<dialog id="dlg"><form id="dlgForm" method="dialog"></form></dialog>
+
+<script>
+const $ = (s, el=document) => el.querySelector(s);
+const fmt = v => (v<0?'−':'') + 'R$ ' + Math.abs(+v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fdata = d => d ? d.split('-').reverse().join('/') : '—';
+const hoje = () => new Date(Date.now()-3*3600e3).toISOString().slice(0,10);
+const esc = s => String(s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const cfg = window.TRACKEAT_CONFIG || {};
+const app = $('#app');
+let sb, user, aba = 'resumo';
+const cache = {};
+
+if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
+  app.innerHTML = `<div id="login" class="card"><h1>TrackEat <span style="color:var(--brand)">Financeiro</span></h1>
+  <div class="aviso">Falta configurar o banco: preencha <b>docs/config.js</b> com a URL e a chave <i>anon</i> do projeto Supabase.</div></div>`;
+} else {
+  sb = supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+  sb.auth.onAuthStateChange((_e, s) => { user = s?.user || null; render(); });
+  sb.auth.getSession().then(({data}) => { user = data.session?.user || null; render(); });
+}
+
+// ------------------------------------------------------------------ login
+function telaLogin(msg='') {
+  app.innerHTML = `<div id="login" class="card">
+    <h1 style="margin:0">TrackEat <span style="color:var(--brand)">Financeiro</span></h1>
+    <p class="muted" style="margin:0">Acesso dos sócios.</p>
+    ${msg}
+    <label>E-mail<br><input id="em" type="email" autocomplete="email" style="width:100%"></label>
+    <label>Senha<br><input id="pw" type="password" autocomplete="current-password" style="width:100%"></label>
+    <button class="btn pri" id="entrar">Entrar</button>
+    <button class="btn" id="link">Receber link de acesso por e-mail</button>
+  </div>`;
+  $('#entrar').onclick = async () => {
+    const { error } = await sb.auth.signInWithPassword({ email: $('#em').value.trim(), password: $('#pw').value });
+    if (error) telaLogin(`<div class="erro">Não entrou: ${esc(error.message)}</div>`);
+  };
+  $('#link').onclick = async () => {
+    const email = $('#em').value.trim();
+    if (!email) return telaLogin('<div class="aviso">Digite o e-mail.</div>');
+    const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.href.split('#')[0], shouldCreateUser: false } });
+    telaLogin(error ? `<div class="erro">${esc(error.message)}</div>` : '<div class="aviso">Link enviado. Abra o e-mail neste aparelho.</div>');
+  };
+}
+
+// ------------------------------------------------------------------ dados
+async function carregar() {
+  const q = (t, sel='*', ord) => { let x = sb.from(t).select(sel); if (ord) x = x.order(ord); return x; };
+  const [l, p, c, ct, s, f] = await Promise.all([
+    q('vw_lancamentos', '*', 'vencimento'), q('parceiros', '*', 'nome'), q('categorias', '*', 'ordem'),
+    q('contas', '*', 'nome'), q('socios', '*', 'nome'), q('vw_fluxo_diario', '*', 'dia')
+  ]);
+  for (const r of [l,p,c,ct,s,f]) if (r.error) throw r.error;
+  Object.assign(cache, { lanc: l.data, parc: p.data, cat: c.data, contas: ct.data, socios: s.data, fluxo: f.data });
+}
+
+async function render() {
+  if (!sb) return;
+  if (!user) return telaLogin();
+  app.innerHTML = `<header>
+      <h1>TrackEat <span>Financeiro</span></h1>
+      <nav>${[['resumo','Resumo'],['lanc','Lançamentos'],['fluxo','Fluxo de caixa'],['parc','Clientes e fornecedores'],['conc','Conciliação'],['socios','Sócios']]
+        .map(([k,t]) => `<button data-aba="${k}" class="${aba===k?'on':''}">${t}</button>`).join('')}</nav>
+      <span class="spacer"></span><span class="who">${esc(user.email)}</span>
+      <button class="btn mini" id="sair">Sair</button>
+    </header><main id="tela"><div class="vazio">Carregando…</div></main>`;
+  app.querySelectorAll('nav button').forEach(b => b.onclick = () => { aba = b.dataset.aba; render(); });
+  $('#sair').onclick = () => sb.auth.signOut();
+  try { await carregar(); } catch (e) {
+    $('#tela').innerHTML = `<div class="erro">Não consegui ler o banco: ${esc(e.message)}.<br>Se o seu e-mail não estiver na lista de sócios, peça ao Neto para incluir.</div>`; return;
+  }
+  ({ resumo: telaResumo, lanc: telaLanc, fluxo: telaFluxo, parc: telaParc, conc: telaConc, socios: telaSocios })[aba]();
+}
+
+// ------------------------------------------------------------------ resumo
+function telaResumo() {
+  const L = cache.lanc, h = hoje();
+  const soma = arr => arr.reduce((a, x) => a + +x.valor, 0);
+  const aRec = L.filter(x => x.tipo==='entrada' && x.status==='previsto');
+  const aPag = L.filter(x => x.tipo==='saida' && x.status==='previsto');
+  const atr  = L.filter(x => x.atrasado);
+  const saldoAtual = cache.contas.reduce((a,c)=>a + +c.saldo_inicial, 0) + L.filter(x=>x.status==='pago').reduce((a,x)=>a + +x.valor_sinal, 0);
+  const prox = L.filter(x => x.status==='previsto').sort((a,b)=>(a.vencimento||'9999').localeCompare(b.vencimento||'9999')).slice(0, 12);
+  // resultado por mês de competência
+  const meses = {};
+  L.forEach(x => { const m = x.competencia.slice(0,7); (meses[m] ||= {ent:0, sai:0}); x.tipo==='entrada' ? meses[m].ent += +x.valor : meses[m].sai += +x.valor; });
+  $('#tela').innerHTML = `
+    <div class="grid">
+      ${kpi('Saldo em conta (realizado)', fmt(saldoAtual), 'saldo inicial + o que já foi pago/recebido')}
+      ${kpi('A receber', fmt(soma(aRec)), aRec.length+' lançamento(s) em aberto', 'pos')}
+      ${kpi('A pagar', fmt(soma(aPag)), aPag.length+' lançamento(s) em aberto', 'neg')}
+      ${kpi('Saldo projetado', fmt(saldoAtual + soma(aRec) - soma(aPag)), 'se tudo em aberto for quitado')}
+      ${kpi('Atrasados', atr.length, atr.length ? fmt(soma(atr))+' vencidos' : 'nada vencido', atr.length?'neg':'')}
+    </div>
+    <h2>Próximos vencimentos</h2>
+    ${tabelaLanc(prox, true)}
+    <h2>Resultado por mês (competência)</h2>
+    <div class="scroll"><table class="tbl"><tr><th>Mês</th><th class="n">Entradas</th><th class="n">Saídas</th><th class="n">Resultado</th></tr>
+    ${Object.keys(meses).sort().reverse().map(m => { const r = meses[m]; const res = r.ent - r.sai;
+      return `<tr><td>${m.split('-').reverse().join('/')}</td><td class="n pos">${fmt(r.ent)}</td><td class="n neg">${fmt(-r.sai)}</td><td class="n ${res<0?'neg':'pos'}"><b>${fmt(res)}</b></td></tr>`; }).join('') || '<tr><td colspan="4" class="vazio">Sem lançamentos</td></tr>'}
+    </table></div>`;
+  ligarBotoesLanc();
+}
+const kpi = (r, v, s='', cls='') => `<div class="card kpi"><div class="rot">${r}</div><div class="val ${cls}">${v}</div><div class="sub">${s}</div></div>`;
+
+// ------------------------------------------------------------------ lançamentos
+let filtro = { mes: '', tipo: '', status: 'aberto', busca: '' };
+function telaLanc() {
+  const meses = [...new Set(cache.lanc.map(x => x.competencia.slice(0,7)))].sort().reverse();
+  $('#tela').innerHTML = `
+    <div class="bar">
+      <button class="btn pri" id="novoE">+ Entrada</button>
+      <button class="btn pri" id="novoS">+ Saída</button>
+      <span class="spacer"></span>
+      <select id="fMes"><option value="">Todos os meses</option>${meses.map(m=>`<option ${filtro.mes===m?'selected':''} value="${m}">${m.split('-').reverse().join('/')}</option>`).join('')}</select>
+      <select id="fTipo"><option value="">Entradas e saídas</option><option value="entrada" ${filtro.tipo==='entrada'?'selected':''}>Só entradas</option><option value="saida" ${filtro.tipo==='saida'?'selected':''}>Só saídas</option></select>
+      <select id="fSt"><option value="">Todos</option><option value="aberto" ${filtro.status==='aberto'?'selected':''}>Em aberto</option><option value="pago" ${filtro.status==='pago'?'selected':''}>Pagos</option></select>
+      <input id="fBusca" placeholder="Buscar" value="${esc(filtro.busca)}">
+    </div><div id="lista"></div>`;
+  const pinta = () => {
+    const b = filtro.busca.toLowerCase();
+    const arr = cache.lanc.filter(x => (!filtro.mes || x.competencia.startsWith(filtro.mes)) && (!filtro.tipo || x.tipo===filtro.tipo)
+      && (!filtro.status || (filtro.status==='aberto' ? x.status==='previsto' : x.status===filtro.status))
+      && (!b || `${x.descricao} ${x.parceiro} ${x.categoria} ${x.documento}`.toLowerCase().includes(b)));
+    const tot = arr.reduce((a,x)=>a + +x.valor_sinal, 0);
+    $('#lista').innerHTML = tabelaLanc(arr, true) + `<p class="muted">${arr.length} lançamento(s) · saldo da seleção <b class="${tot<0?'neg':'pos'}">${fmt(tot)}</b></p>`;
+    ligarBotoesLanc();
+  };
+  $('#fMes').onchange = e => { filtro.mes = e.target.value; pinta(); };
+  $('#fTipo').onchange = e => { filtro.tipo = e.target.value; pinta(); };
+  $('#fSt').onchange = e => { filtro.status = e.target.value; pinta(); };
+  $('#fBusca').oninput = e => { filtro.busca = e.target.value; pinta(); };
+  $('#novoE').onclick = () => formLanc({ tipo: 'entrada' });
+  $('#novoS').onclick = () => formLanc({ tipo: 'saida' });
+  pinta();
+}
+
+function tabelaLanc(arr, acoes) {
+  if (!arr.length) return '<div class="card vazio">Nada por aqui.</div>';
+  return `<div class="scroll"><table class="tbl"><tr><th>Vencimento</th><th>Descrição</th><th>Cliente/fornecedor</th><th>Categoria</th><th class="n">Valor</th><th>Situação</th>${acoes?'<th></th>':''}</tr>
+  ${arr.map(x => `<tr>
+    <td>${fdata(x.vencimento)}<div class="muted" style="font-size:12px">comp. ${x.competencia.slice(5,7)}/${x.competencia.slice(0,4)}</div></td>
+    <td>${esc(x.descricao)}${x.documento?`<div class="muted" style="font-size:12px">${esc(x.documento)}</div>`:''}${x.observacao?`<div class="muted" style="font-size:12px">${esc(x.observacao)}</div>`:''}</td>
+    <td>${esc(x.parceiro||'—')}</td><td>${esc(x.categoria||'—')}</td>
+    <td class="n ${x.tipo==='entrada'?'pos':'neg'}">${fmt(x.valor_sinal)}</td>
+    <td>${x.status==='pago' ? `<span class="tag t-pago">${x.tipo==='entrada'?'Recebido':'Pago'} ${fdata(x.data_pagamento)}</span>${x.conciliado?' <span class="tag t-pago">✓ banco</span>':''}`
+        : x.atrasado ? '<span class="tag t-atr">Atrasado</span>' : '<span class="tag t-prev">Em aberto</span>'}</td>
+    ${acoes?`<td style="white-space:nowrap">${x.status==='previsto'?`<button class="btn mini" data-baixa="${x.id}">${x.tipo==='entrada'?'Recebi':'Paguei'}</button> `:''}<button class="btn mini" data-edit="${x.id}">Editar</button></td>`:''}
+  </tr>`).join('')}</table></div>`;
+}
+
+function ligarBotoesLanc() {
+  document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => formLanc(cache.lanc.find(x => x.id === b.dataset.edit)));
+  document.querySelectorAll('[data-baixa]').forEach(b => b.onclick = () => formBaixa(cache.lanc.find(x => x.id === b.dataset.baixa)));
+}
+
+function abrirDialogo(html, aoSalvar) {
+  const d = $('#dlg'), f = $('#dlgForm');
+  f.innerHTML = html + `<div id="dlgErro"></div><div class="acoes"><button class="btn" value="cancel" formnovalidate>Cancelar</button><button class="btn pri" id="dlgOk" value="ok">Salvar</button></div>`;
+  f.onsubmit = async ev => {
+    if (ev.submitter?.value !== 'ok') return;
+    ev.preventDefault();
+    const dados = Object.fromEntries(new FormData(f));
+    const err = await aoSalvar(dados);
+    if (err) { $('#dlgErro').innerHTML = `<div class="erro">${esc(err.message||err)}</div>`; return; }
+    d.close(); render();
+  };
+  d.showModal();
+}
+
+const optsParc = (tipo, sel) => cache.parc.filter(p => p.tipo===tipo || p.tipo==='ambos').map(p => `<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.nome)}</option>`).join('');
+const optsCat  = (tipo, sel) => cache.cat.filter(c => c.tipo===tipo).map(c => `<option value="${c.id}" ${c.id===sel?'selected':''}>${esc(c.nome)}</option>`).join('');
+const optsConta = sel => cache.contas.map(c => `<option value="${c.id}" ${c.id===sel?'selected':''}>${esc(c.nome)}</option>`).join('');
+
+function formLanc(x) {
+  const ent = x.tipo === 'entrada', novo = !x.id;
+  abrirDialogo(`<h3 style="margin:0">${novo?'Nova':'Editar'} ${ent?'entrada':'saída'}</h3>
+    <label>Descrição<input name="descricao" required value="${esc(x.descricao||'')}"></label>
+    <div class="dois">
+      <label>${ent?'Cliente':'Fornecedor'}<select name="parceiro_id"><option value="">—</option>${optsParc(ent?'cliente':'fornecedor', x.parceiro_id)}</select></label>
+      <label>Categoria<select name="categoria_id" required><option value="">—</option>${optsCat(x.tipo, x.categoria_id)}</select></label>
+    </div>
+    <div class="dois">
+      <label>Competência (mês)<input name="competencia" type="month" required value="${(x.competencia||hoje()).slice(0,7)}"></label>
+      <label>Vencimento<input name="vencimento" type="date" value="${x.vencimento||''}"></label>
+    </div>
+    <div class="dois">
+      <label>Quantidade (opcional)<input name="quantidade" type="number" step="0.01" value="${x.quantidade??''}"></label>
+      <label>Valor unitário (opcional)<input name="valor_unitario" type="number" step="0.0001" value="${x.valor_unitario??''}"></label>
+    </div>
+    <label>Valor (R$)<input name="valor" type="number" step="0.01" min="0.01" required value="${x.valor??''}"></label>
+    <label>Documento (NF, fatura, boleto)<input name="documento" value="${esc(x.documento||'')}"></label>
+    <label>Observação<textarea name="observacao" rows="2">${esc(x.observacao||'')}</textarea></label>
+    ${novo?'':`<label><span><input type="checkbox" name="cancelar"> Cancelar este lançamento</span></label>`}`,
+  async d => {
+    const reg = { tipo: x.tipo, descricao: d.descricao, parceiro_id: d.parceiro_id || null, categoria_id: d.categoria_id,
+      competencia: d.competencia + '-01', vencimento: d.vencimento || null, valor: +d.valor,
+      quantidade: d.quantidade ? +d.quantidade : null, valor_unitario: d.valor_unitario ? +d.valor_unitario : null,
+      documento: d.documento || null, observacao: d.observacao || null };
+    if (d.cancelar) reg.status = 'cancelado';
+    const { error } = novo ? await sb.from('lancamentos').insert(reg) : await sb.from('lancamentos').update(reg).eq('id', x.id);
+    return error;
+  });
+  // calcula o valor a partir de quantidade × unitário
+  const f = $('#dlgForm'), q = f.quantidade, u = f.valor_unitario;
+  const calc = () => { if (q.value && u.value) f.valor.value = (q.value * u.value).toFixed(2); };
+  q.oninput = calc; u.oninput = calc;
+}
+
+function formBaixa(x) {
+  abrirDialogo(`<h3 style="margin:0">${x.tipo==='entrada'?'Registrar recebimento':'Registrar pagamento'}</h3>
+    <p style="margin:0">${esc(x.descricao)} · <b>${fmt(x.valor)}</b></p>
+    <div class="dois">
+      <label>Data<input name="data_pagamento" type="date" required value="${hoje()}"></label>
+      <label>Conta<select name="conta_id" required>${optsConta(x.conta_id)}</select></label>
+    </div>`,
+  async d => (await sb.from('lancamentos').update({ status: 'pago', data_pagamento: d.data_pagamento, conta_id: d.conta_id }).eq('id', x.id)).error);
+}
+
+// ------------------------------------------------------------------ fluxo de caixa
+let fluxoVisao = 'semana';
+function telaFluxo() {
+  const ini = cache.contas.reduce((a,c)=>a + +c.saldo_inicial, 0);
+  const chave = d => {
+    if (fluxoVisao === 'mes') return d.slice(0,7);
+    if (fluxoVisao === 'dia') return d;
+    const dt = new Date(d+'T12:00:00'); const dow = (dt.getDay()+6)%7; dt.setDate(dt.getDate()-dow); return dt.toISOString().slice(0,10);
+  };
+  const g = {};
+  cache.lanc.forEach(x => { const k = chave(x.data_caixa); (g[k] ||= {real:0, prev:0, ent:0, sai:0});
+    x.status==='pago' ? g[k].real += +x.valor_sinal : g[k].prev += +x.valor_sinal;
+    x.tipo==='entrada' ? g[k].ent += +x.valor : g[k].sai += +x.valor; });
+  let saldo = ini;
+  const linhas = Object.keys(g).sort().map(k => { saldo += g[k].real + g[k].prev; return { k, ...g[k], saldo }; });
+  const maxAbs = Math.max(1, ...linhas.map(l => Math.abs(l.saldo)));
+  const rot = k => fluxoVisao==='mes' ? k.split('-').reverse().join('/') : fluxoVisao==='semana' ? 'semana de '+fdata(k) : fdata(k);
+  $('#tela').innerHTML = `
+    <div class="bar"><b>Fluxo de caixa</b><span class="muted">realizado + previsto, pela data de pagamento (ou vencimento, se em aberto)</span>
+      <span class="spacer"></span>
+      <select id="visao">${[['dia','Por dia'],['semana','Por semana'],['mes','Por mês']].map(([v,t])=>`<option value="${v}" ${fluxoVisao===v?'selected':''}>${t}</option>`).join('')}</select></div>
+    <div class="scroll"><table class="tbl"><tr><th>Período</th><th class="n">Entradas</th><th class="n">Saídas</th><th class="n">Realizado</th><th class="n">Previsto</th><th class="n">Saldo projetado</th><th style="width:22%"></th></tr>
+    <tr><td class="muted">Saldo inicial das contas</td><td colspan="4"></td><td class="n">${fmt(ini)}</td><td></td></tr>
+    ${linhas.map(l => `<tr><td>${rot(l.k)}</td><td class="n pos">${fmt(l.ent)}</td><td class="n neg">${fmt(-l.sai)}</td><td class="n">${fmt(l.real)}</td><td class="n muted">${fmt(l.prev)}</td>
+      <td class="n ${l.saldo<0?'neg':''}"><b>${fmt(l.saldo)}</b></td><td><div class="barra"><i style="width:${Math.abs(l.saldo)/maxAbs*100}%;${l.saldo<0?'background:var(--bad)':''}"></i></div></td></tr>`).join('')}
+    </table></div>`;
+  $('#visao').onchange = e => { fluxoVisao = e.target.value; telaFluxo(); };
+}
+
+// ------------------------------------------------------------------ clientes e fornecedores
+function telaParc() {
+  const bloco = (tipo, titulo) => {
+    const arr = cache.parc.filter(p => p.tipo===tipo || p.tipo==='ambos');
+    const mov = id => cache.lanc.filter(l => l.parceiro_id===id);
+    return `<h2>${titulo} <button class="btn mini" data-novo="${tipo}">+ Novo</button></h2>
+    <div class="scroll"><table class="tbl"><tr><th>Nome</th><th>Grupo</th><th>CNPJ</th><th>PIX</th><th class="n">Em aberto</th><th class="n">Total já ${tipo==='cliente'?'recebido':'pago'}</th><th></th></tr>
+    ${arr.map(p => { const m = mov(p.id);
+      const ab = m.filter(l=>l.status==='previsto').reduce((a,l)=>a + +l.valor,0), pg = m.filter(l=>l.status==='pago').reduce((a,l)=>a + +l.valor,0);
+      return `<tr><td>${esc(p.nome)}${p.observacao?`<div class="muted" style="font-size:12px">${esc(p.observacao)}</div>`:''}</td><td>${esc(p.grupo||'—')}</td><td>${esc(p.documento||'—')}</td><td>${esc(p.chave_pix||'—')}</td>
+      <td class="n">${fmt(ab)}</td><td class="n">${fmt(pg)}</td><td><button class="btn mini" data-ep="${p.id}">Editar</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="vazio">Nenhum</td></tr>'}
+    </table></div>`;
+  };
+  $('#tela').innerHTML = bloco('cliente', 'Clientes') + bloco('fornecedor', 'Fornecedores');
+  document.querySelectorAll('[data-novo]').forEach(b => b.onclick = () => formParc({ tipo: b.dataset.novo }));
+  document.querySelectorAll('[data-ep]').forEach(b => b.onclick = () => formParc(cache.parc.find(p => p.id===b.dataset.ep)));
+}
+
+function formParc(p) {
+  abrirDialogo(`<h3 style="margin:0">${p.id?'Editar':'Novo'} ${p.tipo==='cliente'?'cliente':'fornecedor'}</h3>
+    <label>Nome<input name="nome" required value="${esc(p.nome||'')}"></label>
+    <div class="dois"><label>Grupo / rede<input name="grupo" value="${esc(p.grupo||'')}"></label><label>CNPJ<input name="documento" value="${esc(p.documento||'')}"></label></div>
+    <div class="dois"><label>Chave PIX<input name="chave_pix" value="${esc(p.chave_pix||'')}"></label><label>Contato<input name="contato" value="${esc(p.contato||'')}"></label></div>
+    <label>Observação<textarea name="observacao" rows="2">${esc(p.observacao||'')}</textarea></label>`,
+  async d => {
+    const reg = { tipo: p.tipo, nome: d.nome, grupo: d.grupo||null, documento: d.documento||null, chave_pix: d.chave_pix||null, contato: d.contato||null, observacao: d.observacao||null };
+    return (p.id ? await sb.from('parceiros').update(reg).eq('id', p.id) : await sb.from('parceiros').insert(reg)).error;
+  });
+}
+
+// ------------------------------------------------------------------ conciliação bancária (OFX)
+function parseOFX(txt) {
+  const out = [];
+  const blocos = txt.split(/<STMTTRN>/i).slice(1);
+  const tag = (b, t) => (b.match(new RegExp('<'+t+'>([^<\\r\\n]*)', 'i'))||[])[1]?.trim();
+  for (const b of blocos) {
+    const d = tag(b,'DTPOSTED'), v = tag(b,'TRNAMT');
+    if (!d || !v) continue;
+    out.push({ data: `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`, valor: +v.replace(',','.'), id_banco: tag(b,'FITID') || null, descricao: tag(b,'MEMO') || tag(b,'NAME') || '' });
+  }
+  return out;
+}
+
+async function telaConc() {
+  const { data: ext, error } = await sb.from('extrato').select('*').order('data', { ascending: false });
+  if (error) { $('#tela').innerHTML = `<div class="erro">${esc(error.message)}</div>`; return; }
+  const abertos = cache.lanc.filter(l => l.status==='previsto' || (l.status==='pago' && !l.conciliado));
+  const sugestao = e => abertos.filter(l => Math.abs(+l.valor_sinal - +e.valor) < 0.005)
+    .sort((a,b) => Math.abs(new Date(a.data_caixa)-new Date(e.data)) - Math.abs(new Date(b.data_caixa)-new Date(e.data)))[0];
+  const pend = ext.filter(e => !e.lancamento_id), ok = ext.filter(e => e.lancamento_id);
+  $('#tela').innerHTML = `
+    <div class="card"><b>Importar extrato (OFX)</b>
+      <div class="bar" style="margin-top:8px"><select id="cConta">${optsConta()}</select><input type="file" id="ofx" accept=".ofx,.OFX"><span id="ofxMsg" class="muted"></span></div>
+      <div class="muted">Cada linha do banco precisa de um par nos lançamentos. Linhas repetidas (mesmo ID do banco) são ignoradas.</div></div>
+    <h2>Pendentes no banco (${pend.length})</h2>
+    ${pend.length ? `<div class="scroll"><table class="tbl"><tr><th>Data</th><th>Descrição no banco</th><th class="n">Valor</th><th>Par sugerido</th><th></th></tr>
+      ${pend.map(e => { const s = sugestao(e); return `<tr><td>${fdata(e.data)}</td><td>${esc(e.descricao)}</td><td class="n ${e.valor<0?'neg':'pos'}">${fmt(e.valor)}</td>
+        <td>${s ? `${esc(s.descricao)}<div class="muted" style="font-size:12px">${esc(s.parceiro||'')} · venc. ${fdata(s.vencimento)}</div>` : '<span class="muted">sem par com o mesmo valor — crie o lançamento</span>'}</td>
+        <td>${s ? `<button class="btn mini pri" data-conc="${e.id}" data-l="${s.id}">Conciliar</button>` : `<button class="btn mini" data-criar="${e.id}">Criar lançamento</button>`}</td></tr>`; }).join('')}</table></div>`
+      : '<div class="card vazio">Nada pendente.</div>'}
+    <h2>Conciliados (${ok.length})</h2>
+    ${ok.length ? `<div class="scroll"><table class="tbl"><tr><th>Data</th><th>Descrição no banco</th><th class="n">Valor</th><th>Lançamento</th></tr>
+      ${ok.map(e => { const l = cache.lanc.find(x => x.id===e.lancamento_id); return `<tr><td>${fdata(e.data)}</td><td>${esc(e.descricao)}</td><td class="n">${fmt(e.valor)}</td><td>${esc(l?.descricao||'—')}</td></tr>`; }).join('')}</table></div>`
+      : '<div class="card vazio">Nenhum ainda.</div>'}`;
+
+  $('#ofx').onchange = async ev => {
+    const arq = ev.target.files[0]; if (!arq) return;
+    const linhas = parseOFX(await arq.text()).map(r => ({ ...r, conta_id: $('#cConta').value }));
+    if (!linhas.length) { $('#ofxMsg').textContent = 'Não achei lançamentos neste arquivo.'; return; }
+    const { error } = await sb.from('extrato').upsert(linhas, { onConflict: 'conta_id,id_banco', ignoreDuplicates: true });
+    $('#ofxMsg').textContent = error ? error.message : `${linhas.length} linha(s) lidas.`;
+    if (!error) telaConc();
+  };
+  document.querySelectorAll('[data-conc]').forEach(b => b.onclick = async () => {
+    const e = ext.find(x => x.id===b.dataset.conc);
+    const r1 = await sb.from('lancamentos').update({ status: 'pago', data_pagamento: e.data, conta_id: e.conta_id }).eq('id', b.dataset.l);
+    const r2 = r1.error ? r1 : await sb.from('extrato').update({ lancamento_id: b.dataset.l }).eq('id', e.id);
+    if (r2.error) alert(r2.error.message); else render();
+  });
+  document.querySelectorAll('[data-criar]').forEach(b => b.onclick = () => {
+    const e = ext.find(x => x.id===b.dataset.criar);
+    formLanc({ tipo: e.valor < 0 ? 'saida' : 'entrada', descricao: e.descricao, valor: Math.abs(e.valor), vencimento: e.data, competencia: e.data });
+  });
+}
+
+// ------------------------------------------------------------------ sócios
+function telaSocios() {
+  const tot = cache.socios.reduce((a,s)=>a + +(s.cota_pct||0), 0);
+  $('#tela').innerHTML = `<div class="aviso">Cotas da proposta de 09/09. Conferir no contrato social assinado antes de usar em distribuição de resultado.</div>
+    <h2>Sócios</h2><div class="scroll"><table class="tbl"><tr><th>Nome</th><th>Papel</th><th>E-mail de acesso</th><th class="n">Cota</th></tr>
+    ${cache.socios.map(s => `<tr><td>${esc(s.nome)}${s.apelido?` <span class="muted">(${esc(s.apelido)})</span>`:''}</td><td>${esc(s.papel||'')}</td><td>${s.email?esc(s.email):'<span class="muted">sem acesso ainda</span>'}</td><td class="n">${(+s.cota_pct||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}%</td></tr>`).join('')}
+    <tr><td colspan="3"><b>Total</b></td><td class="n"><b>${tot.toLocaleString('pt-BR',{minimumFractionDigits:2})}%</b></td></tr></table></div>`;
+}
+</script>
+</body>
+</html>
