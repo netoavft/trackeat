@@ -546,7 +546,8 @@ function telaParc() {
     <div class="scroll"><table class="tbl"><tr><th>Nome</th><th>Grupo</th><th>CNPJ</th><th>PIX</th><th class="n">Em aberto</th><th class="n">Total já ${tipo==='cliente'?'recebido':'pago'}</th><th></th></tr>
     ${arr.map(p => { const m = mov(p.id);
       const ab = m.filter(l=>l.status==='previsto').reduce((a,l)=>a + +l.valor,0), pg = m.filter(l=>l.status==='pago').reduce((a,l)=>a + +l.valor,0);
-      return `<tr><td>${esc(p.nome)}${p.observacao?`<div class="muted" style="font-size:12px">${esc(p.observacao)}</div>`:''}</td><td>${esc(p.grupo||'—')}</td><td>${esc(p.documento||'—')}</td><td>${esc(p.chave_pix||'—')}</td>
+      const nf = tipo === 'cliente' ? (p.documento && p.razao_social && p.cep ? '<div class="muted" style="font-size:11px">✓ dados para NF</div>' : '<div style="font-size:11px;color:var(--warn)">falta CNPJ/endereço para NF</div>') : '';
+      return `<tr><td>${esc(p.nome)}${p.observacao?`<div class="muted" style="font-size:12px">${esc(p.observacao)}</div>`:''}</td><td>${esc(p.grupo||'—')}</td><td>${esc(p.documento||'—')}${p.razao_social?`<div class="muted" style="font-size:11px">${esc(p.razao_social)}</div>`:''}${nf}</td><td>${esc(p.chave_pix||'—')}</td>
       <td class="n">${fmt(ab)}</td><td class="n">${fmt(pg)}</td><td><button class="btn mini" data-ep="${p.id}">Editar</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="vazio">Nenhum</td></tr>'}
     </table></div>`;
   };
@@ -586,13 +587,47 @@ function formPlano(c) {
 function formParc(p) {
   abrirDialogo(`<h3 style="margin:0">${p.id?'Editar':'Novo'} ${p.tipo==='cliente'?'cliente':'fornecedor'}</h3>
     <label>Nome<input name="nome" required value="${esc(p.nome||'')}"></label>
-    <div class="dois"><label>Grupo / rede<input name="grupo" value="${esc(p.grupo||'')}"></label><label>CNPJ<input name="documento" value="${esc(p.documento||'')}"></label></div>
-    <div class="dois"><label>Chave PIX<input name="chave_pix" value="${esc(p.chave_pix||'')}"></label><label>Contato<input name="contato" value="${esc(p.contato||'')}"></label></div>
+    <div class="dois"><label>Grupo / rede<input name="grupo" value="${esc(p.grupo||'')}"></label>
+      <label>CNPJ<span style="display:flex;gap:6px"><input name="documento" value="${esc(p.documento||'')}" style="flex:1"><button type="button" class="btn mini" id="buscaCnpj">Buscar na Receita</button></span></label></div>
+    <div id="cnpjMsg" class="muted" style="font-size:12px;margin-top:-4px">${p.consultado_em ? `Consultado na Receita em ${fdata(p.consultado_em.slice(0,10))}: ${esc(p.situacao_receita||'')}` : 'Digite o CNPJ e clique em "Buscar na Receita" para preencher razão social e endereço.'}</div>
+    <label>Razão social<input name="razao_social" value="${esc(p.razao_social||'')}"></label>
+    <div class="dois"><label>CEP<input name="cep" value="${esc(p.cep||'')}"></label><label>Logradouro<input name="logradouro" value="${esc(p.logradouro||'')}"></label></div>
+    <div class="dois"><label>Número<input name="numero" value="${esc(p.numero||'')}"></label><label>Complemento<input name="complemento" value="${esc(p.complemento||'')}"></label></div>
+    <div class="dois"><label>Bairro<input name="bairro" value="${esc(p.bairro||'')}"></label><label>Município / UF<span style="display:flex;gap:6px"><input name="municipio" value="${esc(p.municipio||'')}" style="flex:1"><input name="uf" value="${esc(p.uf||'')}" style="width:52px"></span></label></div>
+    <input type="hidden" name="cod_ibge" value="${esc(p.cod_ibge||'')}"><input type="hidden" name="situacao_receita" value="${esc(p.situacao_receita||'')}"><input type="hidden" name="consultado_em" value="${esc(p.consultado_em||'')}">
+    <div class="dois"><label>E-mail para a nota fiscal<input name="email_nf" type="email" value="${esc(p.email_nf||'')}"></label><label>Chave PIX<input name="chave_pix" value="${esc(p.chave_pix||'')}"></label></div>
+    <label>Contato<input name="contato" value="${esc(p.contato||'')}"></label>
     <label>Observação<textarea name="observacao" rows="2">${esc(p.observacao||'')}</textarea></label>`,
   async d => {
-    const reg = { tipo: p.tipo, nome: d.nome, grupo: d.grupo||null, documento: d.documento||null, chave_pix: d.chave_pix||null, contato: d.contato||null, observacao: d.observacao||null };
+    const v = k => (d[k] || '').trim() || null;
+    const reg = { tipo: p.tipo, nome: d.nome, grupo: v('grupo'), documento: v('documento'), chave_pix: v('chave_pix'), contato: v('contato'), observacao: v('observacao'),
+      razao_social: v('razao_social'), cep: v('cep'), logradouro: v('logradouro'), numero: v('numero'), complemento: v('complemento'), bairro: v('bairro'),
+      municipio: v('municipio'), uf: v('uf'), cod_ibge: v('cod_ibge'), email_nf: v('email_nf'), situacao_receita: v('situacao_receita'), consultado_em: v('consultado_em') };
     return (p.id ? await sb.from('parceiros').update(reg).eq('id', p.id) : await sb.from('parceiros').insert(reg)).error;
   });
+  $('#buscaCnpj').onclick = () => buscarCnpj($('#dlgForm'));
+}
+
+// Consulta pública de CNPJ (BrasilAPI, dados da Receita): preenche razão social e endereço no formulário.
+async function buscarCnpj(f) {
+  const msg = $('#cnpjMsg'), cnpj = f.documento.value.replace(/\D/g, '');
+  if (cnpj.length !== 14) { msg.innerHTML = '<span style="color:var(--warn)">O CNPJ precisa ter 14 números.</span>'; return; }
+  msg.textContent = 'Consultando a Receita…';
+  try {
+    const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+    if (!r.ok) throw new Error(r.status === 404 ? 'CNPJ não encontrado na Receita' : `a consulta respondeu ${r.status}`);
+    const x = await r.json();
+    const set = (k, val) => { if (f[k]) f[k].value = val ?? ''; };
+    set('documento', cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5'));
+    set('razao_social', x.razao_social);
+    set('cep', (x.cep || '').replace(/^(\d{5})(\d{3})$/, '$1-$2'));
+    set('logradouro', [x.descricao_tipo_de_logradouro, x.logradouro].filter(Boolean).join(' '));
+    set('numero', x.numero); set('complemento', x.complemento); set('bairro', x.bairro);
+    set('municipio', x.municipio); set('uf', x.uf); set('cod_ibge', x.codigo_municipio_ibge);
+    if (!f.email_nf.value && x.email) set('email_nf', String(x.email).toLowerCase());
+    set('situacao_receita', x.descricao_situacao_cadastral); set('consultado_em', new Date().toISOString());
+    msg.innerHTML = `✓ ${esc(x.razao_social)}${x.nome_fantasia ? ` (${esc(x.nome_fantasia)})` : ''} · situação <b>${esc(x.descricao_situacao_cadastral)}</b>. Confira e clique em Salvar.`;
+  } catch (e) { msg.innerHTML = `<span style="color:var(--warn)">Não consegui consultar: ${esc(e.message)}. Pode preencher à mão.</span>`; }
 }
 
 // ------------------------------------------------------------------ sócios
