@@ -315,9 +315,9 @@ function tabelaLanc(arr, acoes) {
       <div class="muted" style="font-size:12px">${x.forma_pagamento ? FORMAS[x.forma_pagamento] : '<span style="color:var(--warn)">sem forma</span>'}${x.conta ? ' · ' + esc(x.conta) : ''}</div></td>
     <td class="n ${x.tipo==='entrada'?'pos':'neg'}">${fmt(x.valor_sinal)}</td>
     <td>${x.status==='pago' ? `<span class="tag t-pago">${x.tipo==='entrada'?'Recebido':'Pago'} ${fdata(x.data_pagamento)}</span>
-          <label class="conf" title="${x.conferido_em?`conferido por ${esc(x.conferido_por||'?')} em ${new Date(x.conferido_em).toLocaleString('pt-BR')}`:'marque quando achar este valor no extrato do banco'}">
-            <input type="checkbox" data-conf="${x.id}" ${x.conferido_em?'checked':''}> conferido no extrato</label>
-          ${x.conferido_em?`<div class="muted" style="font-size:11px">${esc((x.conferido_por||'').split('@')[0])} · ${fdata(x.conferido_em.slice(0,10))}</div>`:''}`
+          ${x.conferido_em
+            ? `<div class="muted" style="font-size:12px;margin-top:4px" title="conferido por ${esc(x.conferido_por||'?')} em ${new Date(x.conferido_em).toLocaleString('pt-BR')}">✓ conferido no extrato<br>${esc((x.conferido_por||'').split('@')[0])} · ${fdata(x.conferido_em.slice(0,10))}</div>`
+            : `<label class="conf" title="marque quando achar este valor no extrato do banco"><input type="checkbox" data-conf="${x.id}"> conferido no extrato</label>`}`
         : x.atrasado ? '<span class="tag t-atr">Atrasado</span>' : '<span class="tag t-prev">Em aberto</span>'}</td>
     ${acoes?`<td style="white-space:nowrap">${x.status==='previsto'?`<button class="btn mini" data-baixa="${x.id}">${x.tipo==='entrada'?'Recebi':'Paguei'}</button> `:''}<button class="btn mini" data-edit="${x.id}">Editar</button></td>`:''}
   </tr>`).join('')}</table></div>`;
@@ -388,6 +388,7 @@ function formLanc(x) {
     <label>Observação<textarea name="observacao" rows="2">${esc(x.observacao||'')}</textarea></label>
     ${!novo && x.grupo_id ? `<div class="aviso" style="font-size:13px">Este lançamento faz parte de um grupo (${x.parcelas?`parcelado em ${x.parcelas}x`:'recorrência fixa'}${x.projecao?', projeção':''}).
       <label style="display:flex;gap:6px;color:inherit;margin-top:6px"><input type="checkbox" name="todos" checked> Aplicar também aos outros do grupo que ainda estão em aberto (valor, cliente/fornecedor, categoria, documento, observação e cancelamento)</label></div>` : ''}
+    ${!novo && x.conferido_em ? `<label><span><input type="checkbox" name="desconferir"> Desfazer o "conferido no extrato" (só para corrigir engano)</span></label>` : ''}
     ${novo?'':`<label><span><input type="checkbox" name="cancelar"> Cancelar este lançamento${x.grupo_id?' (e os do grupo, se marcado acima)':''}</span></label>`}`,
   async d => {
     const reg = { tipo: x.tipo, descricao: d.descricao, parceiro_id: d.parceiro_id || null, categoria_id: d.categoria_id,
@@ -397,6 +398,7 @@ function formLanc(x) {
       documento: d.documento || null, observacao: d.observacao || null };
     if (!novo) {
       if (d.cancelar) reg.status = 'cancelado';
+      if (d.desconferir) Object.assign(reg, { conferido_em: null, conferido_por: null });
       const { error } = await sb.from('lancamentos').update(reg).eq('id', x.id);
       if (error || !(x.grupo_id && d.todos)) return error;
       // o resto do grupo em aberto: mantém datas e descrições de cada um
