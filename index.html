@@ -144,7 +144,7 @@ async function render() {
   if (!user) return telaLogin();
   app.innerHTML = `<header>
       <h1>TrackEat <span>Financeiro</span></h1>
-      <nav>${[['resumo','Resumo'],['lanc','Lançamentos'],['fluxo','Fluxo de caixa'],['parc','Cadastros'],['socios','Sócios']]
+      <nav>${[['resumo','Resumo'],['lanc','Lançamentos'],['fluxo','Fluxo de caixa'],['dre','DRE'],['parc','Cadastros'],['socios','Sócios']]
         .map(([k,t]) => `<button data-aba="${k}" class="${aba===k?'on':''}">${t}</button>`).join('')}</nav>
       <span class="spacer"></span><span class="who">${esc(user.email)}</span>
       <button class="btn mini" id="sair">Sair</button>
@@ -154,7 +154,7 @@ async function render() {
   try { await carregar(); } catch (e) {
     $('#tela').innerHTML = `<div class="erro">Não consegui ler o banco: ${esc(e.message)}.<br>Se o seu e-mail não estiver na lista de sócios, peça ao Neto para incluir.</div>`; return;
   }
-  ({ resumo: telaResumo, lanc: telaLanc, fluxo: telaFluxo, parc: telaParc, socios: telaSocios })[aba]();
+  ({ resumo: telaResumo, lanc: telaLanc, fluxo: telaFluxo, dre: telaDRE, parc: telaParc, socios: telaSocios })[aba]();
 }
 
 // ------------------------------------------------------------------ resumo
@@ -212,7 +212,61 @@ function matrizPlano(L, chaveMes) {
   linhas += `<tr><td><b>Resultado</b></td>${meses.map(m => { const v = soma(() => true, m); return `<td class="n ${v<0?'neg':'pos'}"><b>${fmt(v)}</b></td>`; }).join('')}</tr>`;
   return `<div class="scroll"><table class="tbl"><tr><th>Plano de contas</th>${meses.map(m => `<th class="n">${rot(m)}</th>`).join('')}</tr>${linhas}</table></div>`;
 }
-const kpi = (r, v, s='', cls='') => `<div class="card kpi"><div class="rot">${r}</div><div class="val ${cls}">${v}</div><div class="sub">${s}</div></div>`;
+// ------------------------------------------------------------------ DRE
+// Demonstração do resultado por competência, montada pelo plano de contas (grupo = 1º dígito do código).
+// Investimentos (7) e movimentações dos sócios (6) não são resultado: ficam abaixo, só para chegar ao caixa.
+let dreProj = true, dreAno = '';
+function telaDRE() {
+  const grupoDe = x => (x.categoria_codigo || x.categoria_grupo || '').charAt(0) || '?';
+  const anos = [...new Set(cache.lanc.map(x => x.competencia.slice(0,4)))].sort();
+  const L = cache.lanc.filter(x => (dreProj || !x.projecao) && (!dreAno || x.competencia.startsWith(dreAno)));
+  const meses = [...new Set(L.map(x => x.competencia.slice(0,7)))].sort();
+  const cols = [...meses, 'total'];
+  const noMes = (x, m) => m === 'total' || x.competencia.startsWith(m);
+  const soma = (f, m) => L.filter(x => f(x) && noMes(x, m)).reduce((a, x) => a + +x.valor_sinal, 0);
+  const contas = [...cache.cat].sort((a, b) => (a.codigo||'9').localeCompare(b.codigo||'9', 'pt', { numeric: true }));
+  const contasDo = g => contas.filter(c => (c.codigo||'').charAt(0) === g && L.some(x => x.categoria_id === c.id));
+  const temProj = m => L.some(x => x.projecao && noMes(x, m) && m !== 'total');
+  const rot = m => m === 'total' ? 'Total' : m.split('-').reverse().join('/');
+  const cel = (v, forte) => `<td class="n ${v<0?'neg':v>0?'pos':'muted'}"${forte?' style="font-weight:700"':''}>${Math.abs(v) >= 0.005 ? fmt(v) : '—'}</td>`;
+  const pct = (v, base) => `<td class="n muted" style="font-size:12px">${base ? (v / base * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%' : '—'}</td>`;
+  const recBruta = m => soma(x => grupoDe(x) === '1', m);
+  const linhaGrupo = (g, titulo) => {
+    const cs = contasDo(g);
+    let h = `<tr><td><b>${titulo}</b></td>${cols.map(m => cel(soma(x => grupoDe(x) === g, m), true)).join('')}${pct(soma(x => grupoDe(x) === g, 'total'), recBruta('total'))}</tr>`;
+    h += cs.map(c => `<tr><td style="padding-left:22px">${esc(rotCat(c))}</td>${cols.map(m => cel(soma(x => x.categoria_id === c.id, m))).join('')}${pct(soma(x => x.categoria_id === c.id, 'total'), recBruta('total'))}</tr>`).join('');
+    return h;
+  };
+  const subtotal = (titulo, f, destaque) => `<tr style="background:var(--bg)"><td><b>${titulo}</b></td>${cols.map(m => { const v = soma(f, m); return `<td class="n ${v<0?'neg':'pos'}"><b>${fmt(v)}</b></td>`; }).join('')}${pct(soma(f, 'total'), recBruta('total'))}</tr>`
+    + (destaque ? `<tr><td class="muted" style="padding-left:22px;font-size:12px">margem sobre a receita bruta</td>${cols.map(m => pct(soma(f, m), recBruta(m))).join('')}<td></td></tr>` : '');
+  const em = gs => x => gs.includes(grupoDe(x));
+  const outros = L.filter(x => !'1234567'.includes(grupoDe(x)));
+  $('#tela').innerHTML = `
+    <div class="bar"><h2 style="margin:0">DRE — demonstração do resultado</h2><span class="spacer"></span>
+      <select id="dreAno"><option value="">Todo o período</option>${anos.map(a => `<option ${dreAno===a?'selected':''}>${a}</option>`).join('')}</select>
+      <label class="muted" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="dreProj" ${dreProj?'checked':''}> incluir projeções</label></div>
+    <p class="muted" style="margin-top:4px">Por mês de competência (o mês a que o valor se refere), pelo plano de contas. Meses com <span class="tag t-proj">proj.</span> têm valores projetados.</p>
+    ${!meses.length ? '<div class="card vazio">Sem lançamentos</div>' : `
+    <div class="scroll"><table class="tbl"><tr><th>DRE</th>${cols.map(m => `<th class="n">${rot(m)}${temProj(m)?'<br><span class="tag t-proj">proj.</span>':''}</th>`).join('')}<th class="n">% receita</th></tr>
+      ${linhaGrupo('1', 'Receita bruta')}
+      ${linhaGrupo('5', '(−) Impostos sobre a receita')}
+      ${subtotal('= Receita líquida', em('15'))}
+      ${linhaGrupo('2', '(−) Custos do serviço')}
+      ${subtotal('= Lucro bruto', em('125'), true)}
+      ${linhaGrupo('3', '(−) Despesas administrativas')}
+      ${linhaGrupo('4', '(−) Despesas comerciais')}
+      ${outros.length ? `<tr><td class="muted">(−) Sem plano de contas</td>${cols.map(m => cel(soma(x => !'1234567'.includes(grupoDe(x)), m))).join('')}<td></td></tr>` : ''}
+      ${subtotal('= Resultado do período', x => !'67'.includes(grupoDe(x)), true)}
+      <tr><td colspan="${cols.length + 2}" class="muted" style="padding-top:16px;font-size:12px">Fora do resultado: não é receita nem despesa, mas mexe no caixa</td></tr>
+      ${linhaGrupo('7', '(−) Investimentos')}
+      ${linhaGrupo('6', '(±) Movimentações dos sócios')}
+      ${subtotal('= Geração de caixa do período', () => true)}
+    </table></div>`}`;
+  $('#dreAno').onchange = e => { dreAno = e.target.value; telaDRE(); };
+  $('#dreProj').onchange = e => { dreProj = e.target.checked; telaDRE(); };
+}
+
+const kpi = (r, v, s='', cls='') =>`<div class="card kpi"><div class="rot">${r}</div><div class="val ${cls}">${v}</div><div class="sub">${s}</div></div>`;
 
 // ------------------------------------------------------------------ lançamentos
 let filtro = { mes: '', tipo: '', status: 'aberto', busca: '', plano: '', forma: '' };
