@@ -56,6 +56,8 @@ button.mini{padding:3px 8px;font-size:12px}
 .pos{color:var(--ok)} .neg{color:var(--bad)}
 .tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;font-weight:600}
 .t-pago{background:var(--ok-bg);color:var(--ok)} .t-prev{background:var(--info-bg);color:var(--ink)} .t-atr{background:var(--bad-bg);color:var(--bad)}
+.t-proj{background:var(--warn-bg);color:var(--warn)}
+.conf{display:flex;gap:4px;align-items:center;font-size:12px;color:var(--muted);margin-top:4px;cursor:pointer;white-space:nowrap}
 .muted{color:var(--muted)}
 .vazio{padding:24px;text-align:center;color:var(--muted)}
 dialog{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);padding:0;width:min(560px,94vw)}
@@ -124,20 +126,25 @@ function telaLogin(msg='') {
 // ------------------------------------------------------------------ dados
 async function carregar() {
   const q = (t, sel='*', ord) => { let x = sb.from(t).select(sel); if (ord) x = x.order(ord); return x; };
-  const [l, p, c, ct, s, f] = await Promise.all([
+  const [l, p, c, ct, s, f, sc] = await Promise.all([
     q('vw_lancamentos', '*', 'vencimento'), q('parceiros', '*', 'nome'), q('categorias', '*', 'ordem'),
-    q('contas', '*', 'nome'), q('socios', '*', 'nome'), q('vw_fluxo_diario', '*', 'dia')
+    q('contas', '*', 'nome'), q('socios', '*', 'nome'), q('vw_fluxo_diario', '*', 'dia'), q('vw_saldo_contas', '*', 'nome')
   ]);
-  for (const r of [l,p,c,ct,s,f]) if (r.error) throw r.error;
-  Object.assign(cache, { lanc: l.data, parc: p.data, cat: c.data, contas: ct.data, socios: s.data, fluxo: f.data });
+  for (const r of [l,p,c,ct,s,f,sc]) if (r.error) throw r.error;
+  // ordem cronológica (mais antigo primeiro) pela data do caixa: pagamento, senão vencimento, senão competência
+  l.data.sort((a, b) => a.data_caixa.localeCompare(b.data_caixa) || (a.criado_em||'').localeCompare(b.criado_em||''));
+  Object.assign(cache, { lanc: l.data, parc: p.data, cat: c.data, contas: ct.data, socios: s.data, fluxo: f.data, saldos: sc.data });
 }
+// conta corrente/caixa (o cartão de crédito não entra no "saldo em conta")
+const contasBanco = () => cache.contas.filter(c => c.tipo !== 'cartao');
+const ehBanco = id => contasBanco().some(c => c.id === id);
 
 async function render() {
   if (!sb) return;
   if (!user) return telaLogin();
   app.innerHTML = `<header>
       <h1>TrackEat <span>Financeiro</span></h1>
-      <nav>${[['resumo','Resumo'],['lanc','Lançamentos'],['fluxo','Fluxo de caixa'],['parc','Clientes e fornecedores'],['conc','Conciliação'],['socios','Sócios']]
+      <nav>${[['resumo','Resumo'],['lanc','Lançamentos'],['fluxo','Fluxo de caixa'],['parc','Clientes e fornecedores'],['socios','Sócios']]
         .map(([k,t]) => `<button data-aba="${k}" class="${aba===k?'on':''}">${t}</button>`).join('')}</nav>
       <span class="spacer"></span><span class="who">${esc(user.email)}</span>
       <button class="btn mini" id="sair">Sair</button>
@@ -147,7 +154,7 @@ async function render() {
   try { await carregar(); } catch (e) {
     $('#tela').innerHTML = `<div class="erro">Não consegui ler o banco: ${esc(e.message)}.<br>Se o seu e-mail não estiver na lista de sócios, peça ao Neto para incluir.</div>`; return;
   }
-  ({ resumo: telaResumo, lanc: telaLanc, fluxo: telaFluxo, parc: telaParc, conc: telaConc, socios: telaSocios })[aba]();
+  ({ resumo: telaResumo, lanc: telaLanc, fluxo: telaFluxo, parc: telaParc, socios: telaSocios })[aba]();
 }
 
 // ------------------------------------------------------------------ resumo
@@ -157,8 +164,8 @@ function telaResumo() {
   const aRec = L.filter(x => x.tipo==='entrada' && x.status==='previsto');
   const aPag = L.filter(x => x.tipo==='saida' && x.status==='previsto');
   const atr  = L.filter(x => x.atrasado);
-  const saldoAtual = cache.contas.reduce((a,c)=>a + +c.saldo_inicial, 0) + L.filter(x=>x.status==='pago').reduce((a,x)=>a + +x.valor_sinal, 0);
-  const prox = L.filter(x => x.status==='previsto').sort((a,b)=>(a.vencimento||'9999').localeCompare(b.vencimento||'9999')).slice(0, 12);
+  const saldoAtual = cache.saldos.filter(s => s.tipo !== 'cartao').reduce((a,s)=>a + +s.saldo_sistema, 0);
+  const prox = L.filter(x => x.status==='previsto').slice(0, 12);
   // resultado por mês de competência
   const meses = {};
   L.forEach(x => { const m = x.competencia.slice(0,7); (meses[m] ||= {ent:0, sai:0}); x.tipo==='entrada' ? meses[m].ent += +x.valor : meses[m].sai += +x.valor; });
@@ -186,6 +193,7 @@ let filtro = { mes: '', tipo: '', status: 'aberto', busca: '' };
 function telaLanc() {
   const meses = [...new Set(cache.lanc.map(x => x.competencia.slice(0,7)))].sort().reverse();
   $('#tela').innerHTML = `
+    ${blocoSaldos()}
     <div class="bar">
       <button class="btn pri" id="novoE">+ Entrada</button>
       <button class="btn pri" id="novoS">+ Saída</button>
@@ -210,7 +218,41 @@ function telaLanc() {
   $('#fBusca').oninput = e => { filtro.busca = e.target.value; pinta(); };
   $('#novoE').onclick = () => formLanc({ tipo: 'entrada' });
   $('#novoS').onclick = () => formLanc({ tipo: 'saida' });
+  ligarSaldos();
   pinta();
+}
+
+// Saldo de cada conta: o que o sistema calcula × o que o extrato do banco mostra.
+// Quando a diferença é zero e todo pago foi conferido, a conta está conciliada.
+function blocoSaldos() {
+  const contas = cache.saldos.filter(s => s.tipo !== 'cartao');
+  if (!contas.length) return '';
+  return `<div class="grid" style="margin-bottom:12px">${contas.map(s => {
+    const sis = +s.saldo_sistema, ext = s.saldo_extrato == null ? null : +s.saldo_extrato;
+    const dif = ext == null ? null : ext - sis, ok = dif != null && Math.abs(dif) < 0.005;
+    const falta = +s.pagos_nao_conferidos;
+    return `<div class="card kpi">
+      <div class="rot">Saldo da conta · ${esc(s.nome)}${s.banco?` <span class="muted">(${esc(s.banco)})</span>`:''}</div>
+      <div class="val ${sis<0?'neg':''}">${fmt(sis)}</div>
+      <div class="sub">pelo sistema: saldo inicial ${fmt(s.saldo_inicial)} em ${fdata(s.data_saldo_inicial)} + o que foi pago/recebido nesta conta</div>
+      <div class="bar" style="margin:10px 0 4px">
+        <label class="muted" style="font-size:12px">Saldo no extrato do banco<br>
+          <input type="number" step="0.01" data-ext="${s.id}" value="${ext ?? ''}" placeholder="digite o saldo" style="width:150px"></label>
+        <label class="muted" style="font-size:12px">em<br><input type="date" data-extd="${s.id}" value="${s.saldo_extrato_em || hoje()}"></label>
+        <button class="btn mini" data-salvaext="${s.id}">Salvar</button>
+      </div>
+      <div class="sub">${ext == null ? 'Digite o saldo do extrato para conferir.'
+        : ok ? `<span class="tag t-pago">✓ Conciliado</span> o extrato bate com o sistema${falta?` · faltam ${falta} lançamento(s) pago(s) para marcar como conferido`:''}`
+        : `<span class="tag t-atr">Diferença ${fmt(dif)}</span> ${dif>0?'o banco tem mais que o sistema: falta lançar entrada ou baixar recebimento':'o banco tem menos que o sistema: falta lançar saída ou baixar pagamento'}`}</div>
+    </div>`; }).join('')}</div>`;
+}
+
+function ligarSaldos() {
+  document.querySelectorAll('[data-salvaext]').forEach(b => b.onclick = async () => {
+    const id = b.dataset.salvaext, v = document.querySelector(`[data-ext="${id}"]`).value, d = document.querySelector(`[data-extd="${id}"]`).value;
+    const { error } = await sb.from('contas').update({ saldo_extrato: v === '' ? null : +v, saldo_extrato_em: d || null }).eq('id', id);
+    if (error) alert(error.message); else render();
+  });
 }
 
 function tabelaLanc(arr, acoes) {
@@ -218,10 +260,14 @@ function tabelaLanc(arr, acoes) {
   return `<div class="scroll"><table class="tbl"><tr><th>Vencimento</th><th>Descrição</th><th>Cliente/fornecedor</th><th>Categoria</th><th class="n">Valor</th><th>Situação</th>${acoes?'<th></th>':''}</tr>
   ${arr.map(x => `<tr>
     <td>${fdata(x.vencimento)}<div class="muted" style="font-size:12px">comp. ${x.competencia.slice(5,7)}/${x.competencia.slice(0,4)}</div></td>
-    <td>${esc(x.descricao)}${x.documento?`<div class="muted" style="font-size:12px">${esc(x.documento)}</div>`:''}${x.observacao?`<div class="muted" style="font-size:12px">${esc(x.observacao)}</div>`:''}</td>
-    <td>${esc(x.parceiro||'—')}</td><td>${esc(x.categoria||'—')}</td>
+    <td>${esc(x.descricao)}${x.projecao?' <span class="tag t-proj">projeção</span>':''}${x.recorrencia==='fixa'&&!x.projecao?' <span class="tag t-prev">fixa</span>':''}${x.parcelas && !x.descricao.includes(`${x.parcela}/${x.parcelas}`)?` <span class="tag t-prev">parcela ${x.parcela}/${x.parcelas}</span>`:''}
+      ${x.documento?`<div class="muted" style="font-size:12px">${esc(x.documento)}</div>`:''}${x.observacao?`<div class="muted" style="font-size:12px">${esc(x.observacao)}</div>`:''}</td>
+    <td>${esc(x.parceiro||'—')}</td><td>${esc(x.categoria||'—')}${x.conta?`<div class="muted" style="font-size:12px">${esc(x.conta)}</div>`:''}</td>
     <td class="n ${x.tipo==='entrada'?'pos':'neg'}">${fmt(x.valor_sinal)}</td>
-    <td>${x.status==='pago' ? `<span class="tag t-pago">${x.tipo==='entrada'?'Recebido':'Pago'} ${fdata(x.data_pagamento)}</span>${x.conciliado?' <span class="tag t-pago">✓ banco</span>':''}`
+    <td>${x.status==='pago' ? `<span class="tag t-pago">${x.tipo==='entrada'?'Recebido':'Pago'} ${fdata(x.data_pagamento)}</span>
+          <label class="conf" title="${x.conferido_em?`conferido por ${esc(x.conferido_por||'?')} em ${new Date(x.conferido_em).toLocaleString('pt-BR')}`:'marque quando achar este valor no extrato do banco'}">
+            <input type="checkbox" data-conf="${x.id}" ${x.conferido_em?'checked':''}> conferido no extrato</label>
+          ${x.conferido_em?`<div class="muted" style="font-size:11px">${esc((x.conferido_por||'').split('@')[0])} · ${fdata(x.conferido_em.slice(0,10))}</div>`:''}`
         : x.atrasado ? '<span class="tag t-atr">Atrasado</span>' : '<span class="tag t-prev">Em aberto</span>'}</td>
     ${acoes?`<td style="white-space:nowrap">${x.status==='previsto'?`<button class="btn mini" data-baixa="${x.id}">${x.tipo==='entrada'?'Recebi':'Paguei'}</button> `:''}<button class="btn mini" data-edit="${x.id}">Editar</button></td>`:''}
   </tr>`).join('')}</table></div>`;
@@ -230,6 +276,11 @@ function tabelaLanc(arr, acoes) {
 function ligarBotoesLanc() {
   document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => formLanc(cache.lanc.find(x => x.id === b.dataset.edit)));
   document.querySelectorAll('[data-baixa]').forEach(b => b.onclick = () => formBaixa(cache.lanc.find(x => x.id === b.dataset.baixa)));
+  document.querySelectorAll('[data-conf]').forEach(c => c.onchange = async () => {
+    const reg = c.checked ? { conferido_em: new Date().toISOString(), conferido_por: user.email } : { conferido_em: null, conferido_por: null };
+    const { error } = await sb.from('lancamentos').update(reg).eq('id', c.dataset.conf);
+    if (error) { alert(error.message); c.checked = !c.checked; } else render();
+  });
 }
 
 function abrirDialogo(html, aoSalvar) {
@@ -266,19 +317,58 @@ function formLanc(x) {
       <label>Quantidade (opcional)<input name="quantidade" type="number" step="0.01" value="${x.quantidade??''}"></label>
       <label>Valor unitário (opcional)<input name="valor_unitario" type="number" step="0.0001" value="${x.valor_unitario??''}"></label>
     </div>
-    <label>Valor (R$)<input name="valor" type="number" step="0.01" min="0.01" required value="${x.valor??''}"></label>
+    <label><span id="rotValor">Valor (R$)</span><input name="valor" type="number" step="0.01" min="0.01" required value="${x.valor??''}"></label>
+    ${novo ? `<div class="dois">
+      <label>Repetição<select name="recorrencia">
+        <option value="">Só uma vez</option>
+        <option value="fixa">Fixa — todo mês (gera os próximos 12)</option>
+        <option value="parcelada">Parcelada em X vezes</option></select></label>
+      <label id="boxParc" style="display:none">Número de parcelas<input name="parcelas" type="number" min="2" max="120" value="2"></label>
+    </div>` : ''}
     <label>Documento (NF, fatura, boleto)<input name="documento" value="${esc(x.documento||'')}"></label>
     <label>Observação<textarea name="observacao" rows="2">${esc(x.observacao||'')}</textarea></label>
-    ${novo?'':`<label><span><input type="checkbox" name="cancelar"> Cancelar este lançamento</span></label>`}`,
+    ${!novo && x.grupo_id ? `<div class="aviso" style="font-size:13px">Este lançamento faz parte de um grupo (${x.parcelas?`parcelado em ${x.parcelas}x`:'recorrência fixa'}${x.projecao?', projeção':''}).
+      <label style="display:flex;gap:6px;color:inherit;margin-top:6px"><input type="checkbox" name="todos" checked> Aplicar também aos outros do grupo que ainda estão em aberto (valor, cliente/fornecedor, categoria, documento, observação e cancelamento)</label></div>` : ''}
+    ${novo?'':`<label><span><input type="checkbox" name="cancelar"> Cancelar este lançamento${x.grupo_id?' (e os do grupo, se marcado acima)':''}</span></label>`}`,
   async d => {
     const reg = { tipo: x.tipo, descricao: d.descricao, parceiro_id: d.parceiro_id || null, categoria_id: d.categoria_id,
       competencia: d.competencia + '-01', vencimento: d.vencimento || null, valor: +d.valor,
       quantidade: d.quantidade ? +d.quantidade : null, valor_unitario: d.valor_unitario ? +d.valor_unitario : null,
       documento: d.documento || null, observacao: d.observacao || null };
-    if (d.cancelar) reg.status = 'cancelado';
-    const { error } = novo ? await sb.from('lancamentos').insert(reg) : await sb.from('lancamentos').update(reg).eq('id', x.id);
-    return error;
+    if (!novo) {
+      if (d.cancelar) reg.status = 'cancelado';
+      const { error } = await sb.from('lancamentos').update(reg).eq('id', x.id);
+      if (error || !(x.grupo_id && d.todos)) return error;
+      // o resto do grupo em aberto: mantém datas e descrições de cada um
+      const comum = { parceiro_id: reg.parceiro_id, categoria_id: reg.categoria_id, documento: reg.documento, observacao: reg.observacao };
+      if (!x.parcelas) comum.valor = reg.valor;          // na parcelada, o valor de cada parcela é dela
+      if (d.cancelar) comum.status = 'cancelado';
+      return (await sb.from('lancamentos').update(comum).eq('grupo_id', x.grupo_id).eq('status', 'previsto').neq('id', x.id)).error;
+    }
+    if (!d.recorrencia) return (await sb.from('lancamentos').insert(reg)).error;
+    // recorrente: um lançamento por mês, todos com o mesmo grupo
+    const grupo = crypto.randomUUID();
+    const n = d.recorrencia === 'fixa' ? 12 : Math.max(2, parseInt(d.parcelas, 10) || 2);
+    const venc0 = reg.vencimento ? new Date(reg.vencimento + 'T12:00:00') : null, comp0 = new Date(reg.competencia + 'T12:00:00');
+    const somaMes = (dt, k) => { const r = new Date(dt); const dia = r.getDate(); r.setDate(1); r.setMonth(r.getMonth() + k);
+      r.setDate(Math.min(dia, new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate())); return r.toISOString().slice(0, 10); };
+    const cents = Math.round(reg.valor * 100), base = Math.floor(cents / n);   // parcelada: divide o total, a última leva o resto
+    const linhas = Array.from({ length: n }, (_, i) => ({ ...reg,
+      descricao: d.recorrencia === 'parcelada' ? `${reg.descricao} ${i + 1}/${n}` : reg.descricao,
+      competencia: somaMes(comp0, i).slice(0, 8) + '01', vencimento: venc0 ? somaMes(venc0, i) : null,
+      valor: d.recorrencia === 'parcelada' ? (i === n - 1 ? cents - base * (n - 1) : base) / 100 : reg.valor,
+      recorrencia: d.recorrencia, grupo_id: grupo,
+      parcela: d.recorrencia === 'parcelada' ? i + 1 : null, parcelas: d.recorrencia === 'parcelada' ? n : null }));
+    return (await sb.from('lancamentos').insert(linhas)).error;
   });
+  if (novo) {
+    const f = $('#dlgForm');
+    f.recorrencia.onchange = () => {
+      const parc = f.recorrencia.value === 'parcelada';
+      $('#boxParc').style.display = parc ? '' : 'none';
+      $('#rotValor').textContent = parc ? 'Valor TOTAL (R$) — será dividido nas parcelas' : f.recorrencia.value === 'fixa' ? 'Valor por mês (R$)' : 'Valor (R$)';
+    };
+  }
   // calcula o valor a partir de quantidade × unitário
   const f = $('#dlgForm'), q = f.quantidade, u = f.valor_unitario;
   const calc = () => { if (q.value && u.value) f.valor.value = (q.value * u.value).toFixed(2); };
@@ -351,61 +441,6 @@ function formParc(p) {
   async d => {
     const reg = { tipo: p.tipo, nome: d.nome, grupo: d.grupo||null, documento: d.documento||null, chave_pix: d.chave_pix||null, contato: d.contato||null, observacao: d.observacao||null };
     return (p.id ? await sb.from('parceiros').update(reg).eq('id', p.id) : await sb.from('parceiros').insert(reg)).error;
-  });
-}
-
-// ------------------------------------------------------------------ conciliação bancária (OFX)
-function parseOFX(txt) {
-  const out = [];
-  const blocos = txt.split(/<STMTTRN>/i).slice(1);
-  const tag = (b, t) => (b.match(new RegExp('<'+t+'>([^<\\r\\n]*)', 'i'))||[])[1]?.trim();
-  for (const b of blocos) {
-    const d = tag(b,'DTPOSTED'), v = tag(b,'TRNAMT');
-    if (!d || !v) continue;
-    out.push({ data: `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`, valor: +v.replace(',','.'), id_banco: tag(b,'FITID') || null, descricao: tag(b,'MEMO') || tag(b,'NAME') || '' });
-  }
-  return out;
-}
-
-async function telaConc() {
-  const { data: ext, error } = await sb.from('extrato').select('*').order('data', { ascending: false });
-  if (error) { $('#tela').innerHTML = `<div class="erro">${esc(error.message)}</div>`; return; }
-  const abertos = cache.lanc.filter(l => l.status==='previsto' || (l.status==='pago' && !l.conciliado));
-  const sugestao = e => abertos.filter(l => Math.abs(+l.valor_sinal - +e.valor) < 0.005)
-    .sort((a,b) => Math.abs(new Date(a.data_caixa)-new Date(e.data)) - Math.abs(new Date(b.data_caixa)-new Date(e.data)))[0];
-  const pend = ext.filter(e => !e.lancamento_id), ok = ext.filter(e => e.lancamento_id);
-  $('#tela').innerHTML = `
-    <div class="card"><b>Importar extrato (OFX)</b>
-      <div class="bar" style="margin-top:8px"><select id="cConta">${optsConta()}</select><input type="file" id="ofx" accept=".ofx,.OFX"><span id="ofxMsg" class="muted"></span></div>
-      <div class="muted">Cada linha do banco precisa de um par nos lançamentos. Linhas repetidas (mesmo ID do banco) são ignoradas.</div></div>
-    <h2>Pendentes no banco (${pend.length})</h2>
-    ${pend.length ? `<div class="scroll"><table class="tbl"><tr><th>Data</th><th>Descrição no banco</th><th class="n">Valor</th><th>Par sugerido</th><th></th></tr>
-      ${pend.map(e => { const s = sugestao(e); return `<tr><td>${fdata(e.data)}</td><td>${esc(e.descricao)}</td><td class="n ${e.valor<0?'neg':'pos'}">${fmt(e.valor)}</td>
-        <td>${s ? `${esc(s.descricao)}<div class="muted" style="font-size:12px">${esc(s.parceiro||'')} · venc. ${fdata(s.vencimento)}</div>` : '<span class="muted">sem par com o mesmo valor — crie o lançamento</span>'}</td>
-        <td>${s ? `<button class="btn mini pri" data-conc="${e.id}" data-l="${s.id}">Conciliar</button>` : `<button class="btn mini" data-criar="${e.id}">Criar lançamento</button>`}</td></tr>`; }).join('')}</table></div>`
-      : '<div class="card vazio">Nada pendente.</div>'}
-    <h2>Conciliados (${ok.length})</h2>
-    ${ok.length ? `<div class="scroll"><table class="tbl"><tr><th>Data</th><th>Descrição no banco</th><th class="n">Valor</th><th>Lançamento</th></tr>
-      ${ok.map(e => { const l = cache.lanc.find(x => x.id===e.lancamento_id); return `<tr><td>${fdata(e.data)}</td><td>${esc(e.descricao)}</td><td class="n">${fmt(e.valor)}</td><td>${esc(l?.descricao||'—')}</td></tr>`; }).join('')}</table></div>`
-      : '<div class="card vazio">Nenhum ainda.</div>'}`;
-
-  $('#ofx').onchange = async ev => {
-    const arq = ev.target.files[0]; if (!arq) return;
-    const linhas = parseOFX(await arq.text()).map(r => ({ ...r, conta_id: $('#cConta').value }));
-    if (!linhas.length) { $('#ofxMsg').textContent = 'Não achei lançamentos neste arquivo.'; return; }
-    const { error } = await sb.from('extrato').upsert(linhas, { onConflict: 'conta_id,id_banco', ignoreDuplicates: true });
-    $('#ofxMsg').textContent = error ? error.message : `${linhas.length} linha(s) lidas.`;
-    if (!error) telaConc();
-  };
-  document.querySelectorAll('[data-conc]').forEach(b => b.onclick = async () => {
-    const e = ext.find(x => x.id===b.dataset.conc);
-    const r1 = await sb.from('lancamentos').update({ status: 'pago', data_pagamento: e.data, conta_id: e.conta_id }).eq('id', b.dataset.l);
-    const r2 = r1.error ? r1 : await sb.from('extrato').update({ lancamento_id: b.dataset.l }).eq('id', e.id);
-    if (r2.error) alert(r2.error.message); else render();
-  });
-  document.querySelectorAll('[data-criar]').forEach(b => b.onclick = () => {
-    const e = ext.find(x => x.id===b.dataset.criar);
-    formLanc({ tipo: e.valor < 0 ? 'saida' : 'entrada', descricao: e.descricao, valor: Math.abs(e.valor), vencimento: e.data, competencia: e.data });
   });
 }
 
