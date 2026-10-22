@@ -181,7 +181,7 @@ function telaResumo() {
     ${tabelaLanc(prox, true)}
     <h2>Resultado por mês (competência)</h2>
     <div class="scroll"><table class="tbl"><tr><th>Mês</th><th class="n">Entradas</th><th class="n">Saídas</th><th class="n">Resultado</th></tr>
-    ${Object.keys(meses).sort().reverse().map(m => { const r = meses[m]; const res = r.ent - r.sai;
+    ${Object.keys(meses).sort().map(m => { const r = meses[m]; const res = r.ent - r.sai;
       return `<tr><td>${m.split('-').reverse().join('/')}</td><td class="n pos">${fmt(r.ent)}</td><td class="n neg">${fmt(-r.sai)}</td><td class="n ${res<0?'neg':'pos'}"><b>${fmt(res)}</b></td></tr>`; }).join('') || '<tr><td colspan="4" class="vazio">Sem lançamentos</td></tr>'}
     </table></div>`;
   ligarBotoesLanc();
@@ -191,7 +191,7 @@ const kpi = (r, v, s='', cls='') => `<div class="card kpi"><div class="rot">${r}
 // ------------------------------------------------------------------ lançamentos
 let filtro = { mes: '', tipo: '', status: 'aberto', busca: '' };
 function telaLanc() {
-  const meses = [...new Set(cache.lanc.map(x => x.competencia.slice(0,7)))].sort().reverse();
+  const meses = [...new Set(cache.lanc.map(x => x.competencia.slice(0,7)))].sort();
   $('#tela').innerHTML = `
     ${blocoSaldos()}
     <div class="bar">
@@ -297,7 +297,7 @@ function abrirDialogo(html, aoSalvar) {
   d.showModal();
 }
 
-const optsParc = (tipo, sel) => cache.parc.filter(p => p.tipo===tipo || p.tipo==='ambos').map(p => `<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.nome)}</option>`).join('');
+const optsParc = (tipo, sel) => cache.parc.filter(p => (p.tipo===tipo || p.tipo==='ambos') && (p.ativo !== false || p.id===sel)).map(p => `<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.nome)}</option>`).join('');
 const optsCat  = (tipo, sel) => cache.cat.filter(c => c.tipo===tipo).map(c => `<option value="${c.id}" ${c.id===sel?'selected':''}>${esc(c.nome)}</option>`).join('');
 const optsConta = sel => cache.contas.map(c => `<option value="${c.id}" ${c.id===sel?'selected':''}>${esc(c.nome)}</option>`).join('');
 
@@ -417,7 +417,7 @@ function telaFluxo() {
 // ------------------------------------------------------------------ clientes e fornecedores
 function telaParc() {
   const bloco = (tipo, titulo) => {
-    const arr = cache.parc.filter(p => p.tipo===tipo || p.tipo==='ambos');
+    const arr = cache.parc.filter(p => (p.tipo===tipo || p.tipo==='ambos') && p.ativo !== false);
     const mov = id => cache.lanc.filter(l => l.parceiro_id===id);
     return `<h2>${titulo} <button class="btn mini" data-novo="${tipo}">+ Novo</button></h2>
     <div class="scroll"><table class="tbl"><tr><th>Nome</th><th>Grupo</th><th>CNPJ</th><th>PIX</th><th class="n">Em aberto</th><th class="n">Total já ${tipo==='cliente'?'recebido':'pago'}</th><th></th></tr>
