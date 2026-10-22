@@ -240,14 +240,22 @@ function telaLanc() {
       && (!b || `${x.descricao} ${x.parceiro} ${x.categoria} ${x.documento}`.toLowerCase().includes(b)));
     const tot = arr.reduce((a,x)=>a + +x.valor_sinal, 0);
     const semConf = arr.filter(x => x.status === 'pago' && !x.conferido_em);
-    $('#lista').innerHTML = (semConf.length ? `<div class="bar" style="margin-bottom:8px"><button class="btn mini" id="confTodos">✓ Marcar os ${semConf.length} pago(s) da grade como conferidos no extrato</button></div>` : '')
+    const soma = semConf.reduce((a,x)=>a + +x.valor_sinal, 0);
+    $('#lista').innerHTML = (semConf.length ? `<div class="bar" style="margin-bottom:8px"><button class="btn mini" id="confTodos">✓ Marcar os ${semConf.length} pago(s) da grade como conferidos no extrato</button>
+        <span id="confPergunta" hidden>Marcar <b>${semConf.length}</b> lançamento(s) pago(s), soma <b>${fmt(soma)}</b>, como conferidos no extrato?
+          <button class="btn mini pri" id="confSim">Confirmar</button> <button class="btn mini" id="confNao">Cancelar</button></span></div>` : '')
       + tabelaLanc(arr, true) + `<p class="muted">${arr.length} lançamento(s) · saldo da seleção <b class="${tot<0?'neg':'pos'}">${fmt(tot)}</b></p>`;
-    if (semConf.length) $('#confTodos').onclick = async () => {
-      const soma = semConf.reduce((a,x)=>a + +x.valor_sinal, 0);
-      if (!confirm(`Marcar ${semConf.length} lançamento(s) pago(s) como conferidos no extrato (soma ${fmt(soma)})?\nSó os que estão na grade agora, com os filtros atuais.`)) return;
-      const { error } = await sb.from('lancamentos').update({ conferido_em: new Date().toISOString(), conferido_por: user.email }).in('id', semConf.map(x => x.id));
-      if (error) alert(error.message); else render();
-    };
+    // confirmação na própria tela (sem a janelinha do navegador)
+    if (semConf.length) {
+      const pergunta = on => { $('#confTodos').hidden = on; $('#confPergunta').hidden = !on; };
+      $('#confTodos').onclick = () => pergunta(true);
+      $('#confNao').onclick = () => pergunta(false);
+      $('#confSim').onclick = async () => {
+        $('#confSim').disabled = true;
+        const { error } = await sb.from('lancamentos').update({ conferido_em: new Date().toISOString(), conferido_por: user.email }).in('id', semConf.map(x => x.id));
+        if (error) { alert(error.message); $('#confSim').disabled = false; } else render();
+      };
+    }
     ligarBotoesLanc();
   };
   $('#fMes').onchange = e => { filtro.mes = e.target.value; pinta(); };
