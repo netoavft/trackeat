@@ -144,7 +144,7 @@ async function render() {
   if (!user) return telaLogin();
   app.innerHTML = `<header>
       <h1>TrackEat <span>Financeiro</span></h1>
-      <nav>${[['resumo','Resumo'],['lanc','Lançamentos'],['fluxo','Fluxo de caixa'],['parc','Clientes e fornecedores'],['socios','Sócios']]
+      <nav>${[['resumo','Resumo'],['lanc','Lançamentos'],['fluxo','Fluxo de caixa'],['parc','Cadastros'],['socios','Sócios']]
         .map(([k,t]) => `<button data-aba="${k}" class="${aba===k?'on':''}">${t}</button>`).join('')}</nav>
       <span class="spacer"></span><span class="who">${esc(user.email)}</span>
       <button class="btn mini" id="sair">Sair</button>
@@ -179,17 +179,43 @@ function telaResumo() {
     </div>
     <h2>Próximos vencimentos</h2>
     ${tabelaLanc(prox, true)}
-    <h2>Resultado por mês (competência)</h2>
+    <div class="bar" style="margin-top:20px"><h2 style="margin:0">Resultado (competência)</h2><span class="spacer"></span>
+      <select id="resVisao"><option value="mes" ${resumoVisao==='mes'?'selected':''}>Por mês</option><option value="plano" ${resumoVisao==='plano'?'selected':''}>Por plano de contas</option></select></div>
+    ${resumoVisao === 'plano' ? matrizPlano(L, x => x.competencia.slice(0,7)) : `
     <div class="scroll"><table class="tbl"><tr><th>Mês</th><th class="n">Entradas</th><th class="n">Saídas</th><th class="n">Resultado</th></tr>
     ${Object.keys(meses).sort().map(m => { const r = meses[m]; const res = r.ent - r.sai;
       return `<tr><td>${m.split('-').reverse().join('/')}</td><td class="n pos">${fmt(r.ent)}</td><td class="n neg">${fmt(-r.sai)}</td><td class="n ${res<0?'neg':'pos'}"><b>${fmt(res)}</b></td></tr>`; }).join('') || '<tr><td colspan="4" class="vazio">Sem lançamentos</td></tr>'}
-    </table></div>`;
+    </table></div>`}`;
+  $('#resVisao').onchange = e => { resumoVisao = e.target.value; telaResumo(); };
   ligarBotoesLanc();
+}
+let resumoVisao = 'mes';
+
+// Tabela plano de contas × mês: grupo (1 Receitas...) com subtotal, conta por conta, e resultado no fim.
+// Valor com sinal (entrada +, saída −), vindo de vw_lancamentos: o mesmo número de toda tela.
+function matrizPlano(L, chaveMes) {
+  const meses = [...new Set(L.map(chaveMes))].sort();
+  if (!meses.length) return '<div class="card vazio">Sem lançamentos</div>';
+  const soma = (f, m) => L.filter(x => f(x) && chaveMes(x) === m).reduce((a, x) => a + +x.valor_sinal, 0);
+  const cel = (v, forte) => `<td class="n ${v<0?'neg':v>0?'pos':'muted'}"${forte?' style="font-weight:700"':''}>${v ? fmt(v) : '—'}</td>`;
+  const contas = [...cache.cat].sort((a, b) => (a.codigo||'9').localeCompare(b.codigo||'9', 'pt', { numeric: true }));
+  const grupos = [...new Set(contas.map(c => c.grupo))];
+  const rot = m => m.split('-').reverse().join('/');
+  let linhas = '';
+  for (const g of grupos) {
+    const doGrupo = contas.filter(c => c.grupo === g && L.some(x => x.categoria_id === c.id));
+    if (!doGrupo.length) continue;
+    linhas += `<tr style="background:var(--bg)"><td><b>${esc(g)}</b></td>${meses.map(m => cel(soma(x => x.categoria_grupo === g, m), true)).join('')}</tr>`;
+    linhas += doGrupo.map(c => `<tr><td style="padding-left:22px">${esc(rotCat(c))}</td>${meses.map(m => cel(soma(x => x.categoria_id === c.id, m))).join('')}</tr>`).join('');
+  }
+  if (L.some(x => !x.categoria_id)) linhas += `<tr><td class="muted">Sem plano de contas</td>${meses.map(m => cel(soma(x => !x.categoria_id, m))).join('')}</tr>`;
+  linhas += `<tr><td><b>Resultado</b></td>${meses.map(m => { const v = soma(() => true, m); return `<td class="n ${v<0?'neg':'pos'}"><b>${fmt(v)}</b></td>`; }).join('')}</tr>`;
+  return `<div class="scroll"><table class="tbl"><tr><th>Plano de contas</th>${meses.map(m => `<th class="n">${rot(m)}</th>`).join('')}</tr>${linhas}</table></div>`;
 }
 const kpi = (r, v, s='', cls='') => `<div class="card kpi"><div class="rot">${r}</div><div class="val ${cls}">${v}</div><div class="sub">${s}</div></div>`;
 
 // ------------------------------------------------------------------ lançamentos
-let filtro = { mes: '', tipo: '', status: 'aberto', busca: '' };
+let filtro = { mes: '', tipo: '', status: 'aberto', busca: '', plano: '', forma: '' };
 function telaLanc() {
   const meses = [...new Set(cache.lanc.map(x => x.competencia.slice(0,7)))].sort();
   $('#tela').innerHTML = `
@@ -201,12 +227,16 @@ function telaLanc() {
       <select id="fMes"><option value="">Todos os meses</option>${meses.map(m=>`<option ${filtro.mes===m?'selected':''} value="${m}">${m.split('-').reverse().join('/')}</option>`).join('')}</select>
       <select id="fTipo"><option value="">Entradas e saídas</option><option value="entrada" ${filtro.tipo==='entrada'?'selected':''}>Só entradas</option><option value="saida" ${filtro.tipo==='saida'?'selected':''}>Só saídas</option></select>
       <select id="fSt"><option value="">Todos</option><option value="aberto" ${filtro.status==='aberto'?'selected':''}>Em aberto</option><option value="pago" ${filtro.status==='pago'?'selected':''}>Pagos</option></select>
+      <select id="fPlano"><option value="">Todo o plano de contas</option>${[...new Set(cache.cat.map(c=>c.grupo))].map(g=>`<optgroup label="${esc(g)}"><option value="g:${esc(g)}" ${filtro.plano==='g:'+g?'selected':''}>${esc(g)} (todas)</option>${cache.cat.filter(c=>c.grupo===g&&c.ativo!==false).map(c=>`<option value="${c.id}" ${filtro.plano===c.id?'selected':''}>${esc(rotCat(c))}</option>`).join('')}</optgroup>`).join('')}</select>
+      <select id="fForma"><option value="">Todas as formas</option>${optsForma(filtro.forma)}<option value="-" ${filtro.forma==='-'?'selected':''}>Sem forma</option></select>
       <input id="fBusca" placeholder="Buscar" value="${esc(filtro.busca)}">
     </div><div id="lista"></div>`;
   const pinta = () => {
     const b = filtro.busca.toLowerCase();
     const arr = cache.lanc.filter(x => (!filtro.mes || x.competencia.startsWith(filtro.mes)) && (!filtro.tipo || x.tipo===filtro.tipo)
       && (!filtro.status || (filtro.status==='aberto' ? x.status==='previsto' : x.status===filtro.status))
+      && (!filtro.plano || (filtro.plano.startsWith('g:') ? x.categoria_grupo === filtro.plano.slice(2) : x.categoria_id === filtro.plano))
+      && (!filtro.forma || (filtro.forma === '-' ? !x.forma_pagamento : x.forma_pagamento === filtro.forma))
       && (!b || `${x.descricao} ${x.parceiro} ${x.categoria} ${x.documento}`.toLowerCase().includes(b)));
     const tot = arr.reduce((a,x)=>a + +x.valor_sinal, 0);
     $('#lista').innerHTML = tabelaLanc(arr, true) + `<p class="muted">${arr.length} lançamento(s) · saldo da seleção <b class="${tot<0?'neg':'pos'}">${fmt(tot)}</b></p>`;
@@ -216,6 +246,8 @@ function telaLanc() {
   $('#fTipo').onchange = e => { filtro.tipo = e.target.value; pinta(); };
   $('#fSt').onchange = e => { filtro.status = e.target.value; pinta(); };
   $('#fBusca').oninput = e => { filtro.busca = e.target.value; pinta(); };
+  $('#fPlano').onchange = e => { filtro.plano = e.target.value; pinta(); };
+  $('#fForma').onchange = e => { filtro.forma = e.target.value; pinta(); };
   $('#novoE').onclick = () => formLanc({ tipo: 'entrada' });
   $('#novoS').onclick = () => formLanc({ tipo: 'saida' });
   ligarSaldos();
@@ -257,12 +289,13 @@ function ligarSaldos() {
 
 function tabelaLanc(arr, acoes) {
   if (!arr.length) return '<div class="card vazio">Nada por aqui.</div>';
-  return `<div class="scroll"><table class="tbl"><tr><th>Vencimento</th><th>Descrição</th><th>Cliente/fornecedor</th><th>Categoria</th><th class="n">Valor</th><th>Situação</th>${acoes?'<th></th>':''}</tr>
+  return `<div class="scroll"><table class="tbl"><tr><th>Vencimento</th><th>Descrição</th><th>Cliente/fornecedor</th><th>Plano de contas</th><th class="n">Valor</th><th>Situação</th>${acoes?'<th></th>':''}</tr>
   ${arr.map(x => `<tr>
     <td>${fdata(x.vencimento)}<div class="muted" style="font-size:12px">comp. ${x.competencia.slice(5,7)}/${x.competencia.slice(0,4)}</div></td>
     <td>${esc(x.descricao)}${x.projecao?' <span class="tag t-proj">projeção</span>':''}${x.recorrencia==='fixa'&&!x.projecao?' <span class="tag t-prev">fixa</span>':''}${x.parcelas && !x.descricao.includes(`${x.parcela}/${x.parcelas}`)?` <span class="tag t-prev">parcela ${x.parcela}/${x.parcelas}</span>`:''}
       ${x.documento?`<div class="muted" style="font-size:12px">${esc(x.documento)}</div>`:''}${x.observacao?`<div class="muted" style="font-size:12px">${esc(x.observacao)}</div>`:''}</td>
-    <td>${esc(x.parceiro||'—')}</td><td>${esc(x.categoria||'—')}${x.conta?`<div class="muted" style="font-size:12px">${esc(x.conta)}</div>`:''}</td>
+    <td>${esc(x.parceiro||'—')}</td><td>${esc(x.categoria ? (x.categoria_codigo ? x.categoria_codigo + ' ' : '') + x.categoria : '—')}
+      <div class="muted" style="font-size:12px">${x.forma_pagamento ? FORMAS[x.forma_pagamento] : '<span style="color:var(--warn)">sem forma</span>'}${x.conta ? ' · ' + esc(x.conta) : ''}</div></td>
     <td class="n ${x.tipo==='entrada'?'pos':'neg'}">${fmt(x.valor_sinal)}</td>
     <td>${x.status==='pago' ? `<span class="tag t-pago">${x.tipo==='entrada'?'Recebido':'Pago'} ${fdata(x.data_pagamento)}</span>
           <label class="conf" title="${x.conferido_em?`conferido por ${esc(x.conferido_por||'?')} em ${new Date(x.conferido_em).toLocaleString('pt-BR')}`:'marque quando achar este valor no extrato do banco'}">
@@ -298,7 +331,15 @@ function abrirDialogo(html, aoSalvar) {
 }
 
 const optsParc = (tipo, sel) => cache.parc.filter(p => (p.tipo===tipo || p.tipo==='ambos') && (p.ativo !== false || p.id===sel)).map(p => `<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.nome)}</option>`).join('');
-const optsCat  = (tipo, sel) => cache.cat.filter(c => c.tipo===tipo).map(c => `<option value="${c.id}" ${c.id===sel?'selected':''}>${esc(c.nome)}</option>`).join('');
+const FORMAS = { pix: 'PIX', boleto: 'Boleto', cartao: 'Cartão de crédito', ted: 'Transferência (TED)', debito: 'Débito automático' };
+const rotCat = c => c ? `${c.codigo ? c.codigo + ' ' : ''}${c.nome}` : '—';
+// plano de contas agrupado (1 Receitas, 2 Custos...), só contas ativas do tipo certo (+ a já escolhida)
+const optsCat = (tipo, sel) => {
+  const arr = cache.cat.filter(c => c.tipo === tipo && (c.ativo !== false || c.id === sel));
+  const grupos = [...new Set(arr.map(c => c.grupo))];
+  return grupos.map(g => `<optgroup label="${esc(g)}">${arr.filter(c => c.grupo === g).map(c => `<option value="${c.id}" ${c.id===sel?'selected':''}>${esc(rotCat(c))}</option>`).join('')}</optgroup>`).join('');
+};
+const optsForma = sel => Object.entries(FORMAS).map(([k, t]) => `<option value="${k}" ${k===sel?'selected':''}>${t}</option>`).join('');
 const optsConta = sel => cache.contas.map(c => `<option value="${c.id}" ${c.id===sel?'selected':''}>${esc(c.nome)}</option>`).join('');
 
 function formLanc(x) {
@@ -307,8 +348,9 @@ function formLanc(x) {
     <label>Descrição<input name="descricao" required value="${esc(x.descricao||'')}"></label>
     <div class="dois">
       <label>${ent?'Cliente':'Fornecedor'}<select name="parceiro_id"><option value="">—</option>${optsParc(ent?'cliente':'fornecedor', x.parceiro_id)}</select></label>
-      <label>Categoria<select name="categoria_id" required><option value="">—</option>${optsCat(x.tipo, x.categoria_id)}</select></label>
+      <label>Plano de contas<select name="categoria_id" required><option value="">—</option>${optsCat(x.tipo, x.categoria_id)}</select></label>
     </div>
+    <label>Forma de ${ent?'recebimento':'pagamento'}<select name="forma_pagamento" ${novo?'required':''}><option value="">—</option>${optsForma(x.forma_pagamento)}</select></label>
     <div class="dois">
       <label>Competência (mês)<input name="competencia" type="month" required value="${(x.competencia||hoje()).slice(0,7)}"></label>
       <label>Vencimento<input name="vencimento" type="date" value="${x.vencimento||''}"></label>
@@ -332,6 +374,7 @@ function formLanc(x) {
     ${novo?'':`<label><span><input type="checkbox" name="cancelar"> Cancelar este lançamento${x.grupo_id?' (e os do grupo, se marcado acima)':''}</span></label>`}`,
   async d => {
     const reg = { tipo: x.tipo, descricao: d.descricao, parceiro_id: d.parceiro_id || null, categoria_id: d.categoria_id,
+      forma_pagamento: d.forma_pagamento || null,
       competencia: d.competencia + '-01', vencimento: d.vencimento || null, valor: +d.valor,
       quantidade: d.quantidade ? +d.quantidade : null, valor_unitario: d.valor_unitario ? +d.valor_unitario : null,
       documento: d.documento || null, observacao: d.observacao || null };
@@ -340,7 +383,7 @@ function formLanc(x) {
       const { error } = await sb.from('lancamentos').update(reg).eq('id', x.id);
       if (error || !(x.grupo_id && d.todos)) return error;
       // o resto do grupo em aberto: mantém datas e descrições de cada um
-      const comum = { parceiro_id: reg.parceiro_id, categoria_id: reg.categoria_id, documento: reg.documento, observacao: reg.observacao };
+      const comum = { parceiro_id: reg.parceiro_id, categoria_id: reg.categoria_id, forma_pagamento: reg.forma_pagamento, documento: reg.documento, observacao: reg.observacao };
       if (!x.parcelas) comum.valor = reg.valor;          // na parcelada, o valor de cada parcela é dela
       if (d.cancelar) comum.status = 'cancelado';
       return (await sb.from('lancamentos').update(comum).eq('grupo_id', x.grupo_id).eq('status', 'previsto').neq('id', x.id)).error;
@@ -405,12 +448,13 @@ function telaFluxo() {
   $('#tela').innerHTML = `
     <div class="bar"><b>Fluxo de caixa</b><span class="muted">realizado + previsto, pela data de pagamento (ou vencimento, se em aberto)</span>
       <span class="spacer"></span>
-      <select id="visao">${[['dia','Por dia'],['semana','Por semana'],['mes','Por mês']].map(([v,t])=>`<option value="${v}" ${fluxoVisao===v?'selected':''}>${t}</option>`).join('')}</select></div>
+      <select id="visao">${[['dia','Por dia'],['semana','Por semana'],['mes','Por mês'],['plano','Por plano de contas (mês)']].map(([v,t])=>`<option value="${v}" ${fluxoVisao===v?'selected':''}>${t}</option>`).join('')}</select></div>
+    ${fluxoVisao === 'plano' ? matrizPlano(cache.lanc, x => x.data_caixa.slice(0,7)) : `
     <div class="scroll"><table class="tbl"><tr><th>Período</th><th class="n">Entradas</th><th class="n">Saídas</th><th class="n">Realizado</th><th class="n">Previsto</th><th class="n">Saldo projetado</th><th style="width:22%"></th></tr>
     <tr><td class="muted">Saldo inicial das contas</td><td colspan="4"></td><td class="n">${fmt(ini)}</td><td></td></tr>
     ${linhas.map(l => `<tr><td>${rot(l.k)}</td><td class="n pos">${fmt(l.ent)}</td><td class="n neg">${fmt(-l.sai)}</td><td class="n">${fmt(l.real)}</td><td class="n muted">${fmt(l.prev)}</td>
       <td class="n ${l.saldo<0?'neg':''}"><b>${fmt(l.saldo)}</b></td><td><div class="barra"><i style="width:${Math.abs(l.saldo)/maxAbs*100}%;${l.saldo<0?'background:var(--bad)':''}"></i></div></td></tr>`).join('')}
-    </table></div>`;
+    </table></div>`}`;
   $('#visao').onchange = e => { fluxoVisao = e.target.value; telaFluxo(); };
 }
 
@@ -427,9 +471,37 @@ function telaParc() {
       <td class="n">${fmt(ab)}</td><td class="n">${fmt(pg)}</td><td><button class="btn mini" data-ep="${p.id}">Editar</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="vazio">Nenhum</td></tr>'}
     </table></div>`;
   };
-  $('#tela').innerHTML = bloco('cliente', 'Clientes') + bloco('fornecedor', 'Fornecedores');
+  $('#tela').innerHTML = bloco('cliente', 'Clientes') + bloco('fornecedor', 'Fornecedores') + blocoPlano();
+  $('#novoPlano').onclick = () => formPlano({ tipo: 'saida', ativo: true });
+  document.querySelectorAll('[data-eplano]').forEach(b => b.onclick = () => formPlano(cache.cat.find(c => c.id === b.dataset.eplano)));
   document.querySelectorAll('[data-novo]').forEach(b => b.onclick = () => formParc({ tipo: b.dataset.novo }));
   document.querySelectorAll('[data-ep]').forEach(b => b.onclick = () => formParc(cache.parc.find(p => p.id===b.dataset.ep)));
+}
+
+function blocoPlano() {
+  const contas = [...cache.cat].sort((a, b) => (a.codigo||'9').localeCompare(b.codigo||'9', 'pt', { numeric: true }));
+  const uso = id => cache.lanc.filter(l => l.categoria_id === id).length;
+  return `<h2>Plano de contas <button class="btn mini" id="novoPlano">+ Nova conta</button></h2>
+  <div class="scroll"><table class="tbl"><tr><th>Código</th><th>Conta</th><th>Grupo</th><th>Tipo</th><th class="n">Lançamentos</th><th>Situação</th><th></th></tr>
+  ${contas.map(c => `<tr${c.ativo===false?' class="muted"':''}><td>${esc(c.codigo||'—')}</td><td>${esc(c.nome)}</td><td>${esc(c.grupo)}</td><td>${c.tipo==='entrada'?'Entrada':'Saída'}</td>
+    <td class="n">${uso(c.id)}</td><td>${c.ativo===false?'Inativa':'Ativa'}</td><td><button class="btn mini" data-eplano="${c.id}">Editar</button></td></tr>`).join('')}
+  </table></div>`;
+}
+
+function formPlano(c) {
+  const grupos = [...new Set(cache.cat.map(x => x.grupo))].sort((a,b)=>a.localeCompare(b,'pt',{numeric:true}));
+  abrirDialogo(`<h3 style="margin:0">${c.id?'Editar':'Nova'} conta do plano</h3>
+    <div class="dois"><label>Código (ex.: 4.3)<input name="codigo" required value="${esc(c.codigo||'')}"></label>
+      <label>Tipo<select name="tipo"><option value="entrada" ${c.tipo==='entrada'?'selected':''}>Entrada</option><option value="saida" ${c.tipo==='saida'?'selected':''}>Saída</option></select></label></div>
+    <label>Nome<input name="nome" required value="${esc(c.nome||'')}"></label>
+    <label>Grupo<input name="grupo" required list="gruposPlano" value="${esc(c.grupo||'')}"><datalist id="gruposPlano">${grupos.map(g=>`<option value="${esc(g)}">`).join('')}</datalist></label>
+    <label><span><input type="checkbox" name="ativo" ${c.ativo!==false?'checked':''}> Ativa (aparece para lançar)</span></label>
+    <p class="muted" style="margin:0;font-size:12px">Desativar não apaga: os lançamentos antigos continuam com esta conta.</p>`,
+  async d => {
+    const [a, b] = d.codigo.trim().split('.').map(n => parseInt(n, 10) || 0);
+    const reg = { codigo: d.codigo.trim(), nome: d.nome.trim(), tipo: d.tipo, grupo: d.grupo.trim(), ativo: !!d.ativo, ordem: a * 10 + (b || 0) };
+    return (c.id ? await sb.from('categorias').update(reg).eq('id', c.id) : await sb.from('categorias').insert(reg)).error;
+  });
 }
 
 function formParc(p) {
