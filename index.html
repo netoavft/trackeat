@@ -243,7 +243,8 @@ function telaLanc() {
     const soma = semConf.reduce((a,x)=>a + +x.valor_sinal, 0);
     $('#lista').innerHTML = (semConf.length ? `<div class="bar" style="margin-bottom:8px"><button class="btn mini" id="confTodos">✓ Marcar os ${semConf.length} pago(s) da grade como conferidos no extrato</button>
         <span id="confPergunta" hidden>Marcar <b>${semConf.length}</b> lançamento(s) pago(s), soma <b>${fmt(soma)}</b>, como conferidos no extrato?
-          <button class="btn mini pri" id="confSim">Confirmar</button> <button class="btn mini" id="confNao">Cancelar</button></span></div>` : '')
+          <button class="btn mini pri" id="confSim">Confirmar</button> <button class="btn mini" id="confNao">Cancelar</button></span></div>`
+        : arr.some(x => x.status === 'pago') ? `<div class="muted" style="margin-bottom:8px">✓ Todos os pagos da grade já estão conferidos no extrato.</div>` : '')
       + tabelaLanc(arr, true) + `<p class="muted">${arr.length} lançamento(s) · saldo da seleção <b class="${tot<0?'neg':'pos'}">${fmt(tot)}</b></p>`;
     // confirmação na própria tela (sem a janelinha do navegador)
     if (semConf.length) {
