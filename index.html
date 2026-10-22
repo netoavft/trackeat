@@ -536,7 +536,7 @@ function formParc(p) {
 // ------------------------------------------------------------------ sócios
 function telaSocios() {
   const tot = cache.socios.reduce((a,s)=>a + +(s.cota_pct||0), 0);
-  $('#tela').innerHTML = `<div class="aviso">Cotas da proposta de 09/09. Conferir no contrato social assinado antes de usar em distribuição de resultado.</div>
+  $('#tela').innerHTML = `<div class="aviso">Cotas do contrato social registrado na JUCEPAR em 21/09/2026: capital de R$ 10.000,00 em 10.000 quotas de R$ 1,00. Administrador: Jonathan.</div>
     <h2>Sócios</h2><div class="scroll"><table class="tbl"><tr><th>Nome</th><th>Papel</th><th>E-mail de acesso</th><th class="n">Cota</th></tr>
     ${cache.socios.map(s => `<tr><td>${esc(s.nome)}${s.apelido?` <span class="muted">(${esc(s.apelido)})</span>`:''}</td><td>${esc(s.papel||'')}</td><td>${s.email?esc(s.email):'<span class="muted">sem acesso ainda</span>'}</td><td class="n">${(+s.cota_pct||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}%</td></tr>`).join('')}
     <tr><td colspan="3"><b>Total</b></td><td class="n"><b>${tot.toLocaleString('pt-BR',{minimumFractionDigits:2})}%</b></td></tr></table></div>`;
