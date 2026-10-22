@@ -182,14 +182,20 @@ function telaResumo() {
     <div class="bar" style="margin-top:20px"><h2 style="margin:0">Resultado (competência)</h2><span class="spacer"></span>
       <select id="resVisao"><option value="mes" ${resumoVisao==='mes'?'selected':''}>Por mês</option><option value="plano" ${resumoVisao==='plano'?'selected':''}>Por plano de contas</option></select></div>
     ${resumoVisao === 'plano' ? matrizPlano(L, x => x.competencia.slice(0,7)) : `
+    <p class="muted" style="margin:4px 0">Clique no mês para ver os lançamentos.</p>
     <div class="scroll"><table class="tbl"><tr><th>Mês</th><th class="n">Entradas</th><th class="n">Saídas</th><th class="n">Resultado</th></tr>
     ${Object.keys(meses).sort().map(m => { const r = meses[m]; const res = r.ent - r.sai;
-      return `<tr><td>${m.split('-').reverse().join('/')}</td><td class="n pos">${fmt(r.ent)}</td><td class="n neg">${fmt(-r.sai)}</td><td class="n ${res<0?'neg':'pos'}"><b>${fmt(res)}</b></td></tr>`; }).join('') || '<tr><td colspan="4" class="vazio">Sem lançamentos</td></tr>'}
+      return `<tr data-resmes="${m}" style="cursor:pointer"><td><span class="muted">${resumoAberto.has(m)?'▾':'▸'}</span> ${m.split('-').reverse().join('/')}</td><td class="n pos">${fmt(r.ent)}</td><td class="n neg">${fmt(-r.sai)}</td><td class="n ${res<0?'neg':'pos'}"><b>${fmt(res)}</b></td></tr>`
+        + (resumoAberto.has(m) ? `<tr><td colspan="4" style="padding:4px 0 12px 18px;background:var(--bg)">${tabelaLanc(L.filter(x => x.competencia.startsWith(m)), true)}</td></tr>` : ''); }).join('') || '<tr><td colspan="4" class="vazio">Sem lançamentos</td></tr>'}
     </table></div>`}`;
   $('#resVisao').onchange = e => { resumoVisao = e.target.value; telaResumo(); };
+  document.querySelectorAll('[data-resmes]').forEach(tr => tr.onclick = () => {
+    const m = tr.dataset.resmes; resumoAberto.has(m) ? resumoAberto.delete(m) : resumoAberto.add(m); telaResumo();
+  });
   ligarBotoesLanc();
 }
 let resumoVisao = 'mes';
+const resumoAberto = new Set();   // meses abertos no "Resultado (competência)"
 
 // Tabela plano de contas × mês: grupo (1 Receitas...) com subtotal, conta por conta, e resultado no fim.
 // Valor com sinal (entrada +, saída −), vindo de vw_lancamentos: o mesmo número de toda tela.
