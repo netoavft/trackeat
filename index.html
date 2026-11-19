@@ -158,27 +158,57 @@ async function render() {
 }
 
 // ------------------------------------------------------------------ resumo
+// Período do Resumo: "até" define o horizonte do saldo projetado; "de" só esconde linhas (o saldo conta tudo antes).
+const somaDias = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0,10); };
+const fimDoMes = d => { const x = new Date(d.slice(0,7) + '-01T12:00:00'); x.setMonth(x.getMonth() + 1); x.setDate(0); return x.toISOString().slice(0,10); };
+let resPer = { de: '', ate: '' };
+
 function telaResumo() {
   const L = cache.lanc, h = hoje();
+  if (!resPer.ate) resPer.ate = somaDias(h, 30);
   const soma = arr => arr.reduce((a, x) => a + +x.valor, 0);
-  const aRec = L.filter(x => x.tipo==='entrada' && x.status==='previsto');
-  const aPag = L.filter(x => x.tipo==='saida' && x.status==='previsto');
+  const abertos = L.filter(x => x.status==='previsto').sort((a, b) => a.data_caixa.localeCompare(b.data_caixa));
+  const ateFim = abertos.filter(x => x.data_caixa <= resPer.ate);          // tudo que vence até a data (inclui atrasados)
+  const aRec = ateFim.filter(x => x.tipo==='entrada'), aPag = ateFim.filter(x => x.tipo==='saida');
   const atr  = L.filter(x => x.atrasado);
   const saldoAtual = cache.saldos.filter(s => s.tipo !== 'cartao').reduce((a,s)=>a + +s.saldo_sistema, 0);
-  const prox = L.filter(x => x.status==='previsto').slice(0, 12);
+  // saldo projetado linha a linha: parte do saldo em conta de hoje e soma cada vencimento em ordem de data
+  let corre = saldoAtual, menor = { v: saldoAtual, d: h };
+  const linhas = ateFim.map(x => { corre += +x.valor_sinal; if (corre < menor.v) menor = { v: corre, d: x.data_caixa }; return { x, saldo: corre }; })
+    .filter(r => !resPer.de || r.x.data_caixa >= resPer.de || r.x.atrasado);
+  const atalho = (rot, de, ate) => `<button class="btn mini${resPer.de===de && resPer.ate===ate?' pri':''}" data-per="${de}|${ate}">${rot}</button>`;
   // resultado por mês de competência
   const meses = {};
   L.forEach(x => { const m = x.competencia.slice(0,7); (meses[m] ||= {ent:0, sai:0}); x.tipo==='entrada' ? meses[m].ent += +x.valor : meses[m].sai += +x.valor; });
   $('#tela').innerHTML = `
+    <div class="bar" style="margin-bottom:10px">
+      <span class="muted">Período:</span>
+      ${atalho('Próximos 7 dias', '', somaDias(h, 7))}${atalho('30 dias', '', somaDias(h, 30))}${atalho('90 dias', '', somaDias(h, 90))}
+      ${atalho('Este mês', h.slice(0,8) + '01', fimDoMes(h))}${atalho('Próximo mês', somaDias(fimDoMes(h), 1), fimDoMes(somaDias(fimDoMes(h), 1)))}
+      <span class="spacer"></span>
+      <label class="muted" style="font-size:12px">de<br><input type="date" id="perDe" value="${resPer.de}"></label>
+      <label class="muted" style="font-size:12px">até<br><input type="date" id="perAte" value="${resPer.ate}"></label>
+    </div>
     <div class="grid">
-      ${kpi('Saldo em conta (realizado)', fmt(saldoAtual), 'saldo inicial + o que já foi pago/recebido')}
-      ${kpi('A receber', fmt(soma(aRec)), aRec.length+' lançamento(s) em aberto', 'pos')}
-      ${kpi('A pagar', fmt(soma(aPag)), aPag.length+' lançamento(s) em aberto', 'neg')}
-      ${kpi('Saldo projetado', fmt(saldoAtual + soma(aRec) - soma(aPag)), 'se tudo em aberto for quitado')}
+      ${kpi('Saldo em conta hoje', fmt(saldoAtual), 'saldo inicial + tudo que já foi pago/recebido na conta (sem o cartão)')}
+      ${kpi('A receber até ' + fdata(resPer.ate), fmt(soma(aRec)), aRec.length+' lançamento(s) em aberto', 'pos')}
+      ${kpi('A pagar até ' + fdata(resPer.ate), fmt(soma(aPag)), aPag.length+' lançamento(s), inclusive a fatura do cartão', 'neg')}
+      ${kpi('Saldo projetado em ' + fdata(resPer.ate), fmt(corre), `saldo de hoje + a receber − a pagar · menor saldo no período: <b class="${menor.v<0?'neg':''}">${fmt(menor.v)}</b> em ${fdata(menor.d)}`, corre<0?'neg':'')}
       ${kpi('Atrasados', atr.length, atr.length ? fmt(soma(atr))+' vencidos' : 'nada vencido', atr.length?'neg':'')}
     </div>
-    <h2>Próximos vencimentos</h2>
-    ${tabelaLanc(prox, true)}
+    <h2>A pagar e a receber</h2>
+    ${!linhas.length ? '<div class="card vazio">Nada em aberto no período.</div>' : `
+    <div class="scroll"><table class="tbl"><tr><th>Data</th><th>Descrição</th><th>Cliente/fornecedor</th><th class="n">A receber</th><th class="n">A pagar</th><th class="n">Saldo projetado</th><th></th></tr>
+      <tr class="muted"><td>${fdata(h)}</td><td colspan="4">Saldo em conta hoje</td><td class="n"><b>${fmt(saldoAtual)}</b></td><td></td></tr>
+      ${linhas.map(({ x, saldo }) => `<tr>
+        <td>${fdata(x.data_caixa)}${x.atrasado ? ' <span class="tag t-atr">atrasado</span>' : ''}</td>
+        <td>${esc(x.descricao)}${x.projecao?' <span class="tag t-proj">projeção</span>':''}<div class="muted" style="font-size:12px">${esc(x.categoria_codigo ? x.categoria_codigo + ' ' + (x.categoria||'') : (x.categoria||''))}${x.conta ? ' · ' + esc(x.conta) : ''}</div></td>
+        <td>${esc(x.parceiro || '—')}</td>
+        <td class="n pos">${x.tipo==='entrada' ? fmt(x.valor) : ''}</td>
+        <td class="n neg">${x.tipo==='saida' ? fmt(-x.valor) : ''}</td>
+        <td class="n ${saldo<0?'neg':''}"><b>${fmt(saldo)}</b></td>
+        <td style="white-space:nowrap"><button class="btn mini" data-baixa="${x.id}">${x.tipo==='entrada'?'Recebi':'Paguei'}</button> <button class="btn mini" data-edit="${x.id}">Editar</button></td></tr>`).join('')}
+    </table></div>`}
     <div class="bar" style="margin-top:20px"><h2 style="margin:0">Resultado (competência)</h2><span class="spacer"></span>
       <select id="resVisao"><option value="mes" ${resumoVisao==='mes'?'selected':''}>Por mês</option><option value="plano" ${resumoVisao==='plano'?'selected':''}>Por plano de contas</option></select></div>
     ${resumoVisao === 'plano' ? matrizPlano(L, x => x.competencia.slice(0,7)) : `
@@ -189,6 +219,9 @@ function telaResumo() {
         + (resumoAberto.has(m) ? `<tr><td colspan="4" style="padding:4px 0 12px 18px;background:var(--bg)">${tabelaLanc(L.filter(x => x.competencia.startsWith(m)), true)}</td></tr>` : ''); }).join('') || '<tr><td colspan="4" class="vazio">Sem lançamentos</td></tr>'}
     </table></div>`}`;
   $('#resVisao').onchange = e => { resumoVisao = e.target.value; telaResumo(); };
+  document.querySelectorAll('[data-per]').forEach(b => b.onclick = () => { const [de, ate] = b.dataset.per.split('|'); resPer = { de, ate }; telaResumo(); });
+  $('#perDe').onchange = e => { resPer.de = e.target.value; telaResumo(); };
+  $('#perAte').onchange = e => { resPer.ate = e.target.value || somaDias(hoje(), 30); telaResumo(); };
   document.querySelectorAll('[data-resmes]').forEach(tr => tr.onclick = () => {
     const m = tr.dataset.resmes; resumoAberto.has(m) ? resumoAberto.delete(m) : resumoAberto.add(m); telaResumo();
   });
